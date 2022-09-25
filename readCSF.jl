@@ -161,6 +161,14 @@ function readCSF(filename)
     Data = Dict{String,Any}()
     # Data["P_0"] = results["Pss"]
     Data["I_b"] = results["CSF_production"]
+    Data["Rcsf"] = results["Rcsf"]
+
+    try
+        Data["P_0"] = results["Pss"]
+    catch
+        Data["P_0"] = results["pss"]
+    end
+
     Data["E"] = E
     Data["ICP"] = ICP
     Data["AMP"] = AMP
@@ -175,11 +183,19 @@ function readCSF(filename)
     Data["start_time"] = start_time
     Data["end_time"] = end_time
     Data["I_inf"] = parse(Float64, Parameters[1]["Value"])
-
+    Parameters[3]["Value"] == "yes" ? Data["one_needle"] = 1 : Data["one_needle"] = 0
+    Data["one_needle"] == 1 ? Data["Rn"] = results["Needle_resist."] : Data["Rn"] = 0
     return Data
 end
 
 function plot_model(I_b, E, P_0, ICP, dsampf, trend)
+    infusion_start_frame = Data["infusion_start_frame"]
+    infusion_end_frame = Data["infusion_end_frame"]
+    plateau_start = Data["plateau_start"]
+    plateau_end = Data["plateau_end"]
+    P_b = Data["P_b"]
+    P_p = Data["P_p"]
+    I_inf = Data["I_inf"]
     numsamples = length(ICP)
     infusion_end_frame > numsamples ? (global infusion_end_frame = numsamples) : 0
     # println("Estimated parameters:\nIₐ = $Ibr [mL/min]\n" * "E = $Er [mmHg/mL]\n" * "P₀ = $P0r [mmHg]\n")
@@ -195,13 +211,16 @@ function plot_model(I_b, E, P_0, ICP, dsampf, trend)
     P_model = zeros(numsamples)
     ICPm = zeros(infusion_end_frame - infusion_start_frame)
 
+    errorVal = 0.0
     for i = infusion_start_frame:infusion_end_frame
         tᵢ = (i - infusion_start_frame) / 6
         It = I_b + I_inf
         ΔP = P_b - P_0
-        y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
+        errorVal += (ICP[i] - y)^2
         P_model[i] = y
     end
+    global fitErrorVal = sqrt(errorVal/length(ICPm))
 
     ICPm = P_model[infusion_start_frame:infusion_end_frame]
     P_m[infusion_start_frame:infusion_end_frame] = ICPm
@@ -213,74 +232,94 @@ function plot_model(I_b, E, P_0, ICP, dsampf, trend)
     vline!([plateau_start], background=:transparent, legend=:outertopright, linestyle=:dash, linecolor=:mint, alpha=0.5, linewidth=1, label="Start of plateau")
     hline!([P_p], linecolor=:coral2, label="Pₚ", linewidth=0.5, alpha=0.5)
     trend ? plot!(g0, linewidth=2, alpha=0.8, linecolor=:violet, label="Moving average") : 0 # Plot moving average
-    
+
     plot!(ICP, linecolor=:cadetblue, linewidth=2, label="Measured", alpha=0.7) # Plot ICP from beginning until end of plateau
     # Plot model prediction from beginning until end of plateau
-    plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1],
-
-        xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:plateau_end;], [0:30:plateau_end;] ./ 10),
+    plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1], xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:plateau_end;], [0:30:plateau_end;] ./ 10),
         label="Model", grid=false, titlefontsize=8, titlealign=:left, background=RGB(0.13, 0.14, 0.14))
+    title!("I_b = $I_b\n" * "Rcsf = $(value(Rcsf))\n" * "E = $(value(E))\n" * "P_0 = $(value(P_0)))\n" * "error = $fitErrorVal")
 end
 
-function getModel(optalg, x0, lower, upper)
-    model = Model(NLopt.Optimizer) # Initiate instance of model object
-    set_optimizer_attribute(model, "algorithm", optalg) # Set optimization algorithm
-
-    register(model, :myerrfun, 3, myerrfun, ∇f)
-
-    @variable(model, lower[1] <= I_b <= upper[1])
-    @variable(model, lower[2] <= E <= upper[2])
-    @variable(model, lower[3] <= P_0 <= P_b)
-
-    @NLobjective(model, Min, myerrfun(I_b, E, P_0))
-
-    set_start_value(I_b, x0[1])
-    set_start_value(E, x0[2])
-    set_start_value(P_0, x0[3])
-
-    JuMP.optimize!(model)
-
-    return model, value(I_b), value(E), value(P_0)
+function errfun(Rcsf::Real, E::Real, P_0::Real)
+    errorVal = 0.0
+    ΔP = Data["P_b"] - P_0
+    I_b = ΔP / Rcsf
+    It = I_b + Data["I_inf"]
+    for i = 1:length(Pm)
+        tᵢ = (i - 1) / 6
+        Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
+        errorVal += (Pm[i] - Pᵢ)^2
+    end
+    δlb = delta.(Ib_lower .- I_b)
+    δub = delta.(I_b .- Ib_upper)
+    δ = C .* vcat(δlb, δub)
+    penalty = sum(δ .^ κ)
+    
+    # global fitErrorVal = 100 * (sqrt(errorVal) / length(Pm) / abs(mean(Pm)))
+    return errorVal + penalty
 end
 
-function getModelRcsf(optalg, x0, lower, upper)
-    model = Model(NLopt.Optimizer) # Initiate instance of model object
-    set_optimizer_attribute(model, "algorithm", optalg) # Set optimization algorithm
+function errfunBayes(x)
+    Rcsf = x[1]
+    E = x[2]
+    P_0 = x[3]
 
-    register(model, :myerrfun, 3, myerrfun, ∇f)
-
-    @variable(model, lower[1] <= Rcsf <= upper[1])
-    @variable(model, lower[2] <= E <= upper[2])
-    @variable(model, lower[3] <= P_0 <= P_b)
-
-    @NLobjective(model, Min, myerrfun(Rcsf, E, P_0))
-
-    set_start_value(Rcsf, x0[1])
-    set_start_value(E, x0[2])
-    set_start_value(P_0, x0[3])
-
-    JuMP.optimize!(model)
-
-    return model, value(Rcsf), value(E), value(P_0)
+    errorVal = 0.0
+    ΔP = Data["P_b"] - P_0
+    I_b = ΔP / Rcsf
+    It = I_b + Data["I_inf"]
+    for i = 1:length(Pm)
+        tᵢ = (i - 1) / 6
+        Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
+        errorVal += (Pm[i] - Pᵢ)^2
+    end
+    δlb = delta.(Ib_lower .- I_b)
+    δub = delta.(I_b .- Ib_upper)
+    δ = C .* vcat(δlb, δub)
+    penalty = sum(δ .^ κ)
+    # global fitErrorVal = 100 * (sqrt(errorVal) / length(Pm) / abs(mean(Pm)))
+    return errorVal + penalty
 end
 
-function getModelPss(optalg, x0, lower, upper)
-    model = Model(NLopt.Optimizer) # Initiate instance of model object
-    set_optimizer_attribute(model, "algorithm", optalg) # Set optimization algorithm
+function getModelNL(lowerbound, upperbound, optalg)
+    model = Model(NLopt.Optimizer)
+    set_optimizer_attribute(model, "algorithm", optalg)
+    register(model, :errfun, 3, errfun, autodiff=true)
 
-    register(model, :myerrfun, 3, myerrfun, ∇f)
+    @variable(model, lowerbound[1] <= Rcsf <= upperbound[1])
+    @variable(model, lowerbound[2] <= E <= upperbound[2])
+    @variable(model, lowerbound[3] <= P_0 <= upperbound[3])
+    # @NLconstraint(model, c1, (P_b - P_0) / Rcsf <= 0.5)
+    @NLobjective(model, Min, errfun(Rcsf, E, P_0))
 
-    @variable(model, lower[1] <= Rcsf <= upper[1])
-    @variable(model, lower[2] <= E <= upper[2])
-    @variable(model, lower[3] <= P_0 <= P_b)
+    set_start_value(Rcsf, Data["Rcsf"])
+    set_start_value(E, minimum([Data["E"], 1.0]))
+    set_start_value(P_0, minimum([0.0, Data["P_b"]]))
 
-    @NLobjective(model, Min, myerrfun(Rcsf, E, P_0))
+    # JuMP.optimize!(model)
+    optimize!(model)
+    return value(Rcsf), value(E), value(P_0)
+end
 
-    set_start_value(Rcsf, x0[1])
-    set_start_value(E, x0[2])
-    set_start_value(P_0, x0[3])
+function getModelBayes(lowerbound, upperbound, bkernel, bsctype, bltype)
 
-    JuMP.optimize!(model)
+    config = ConfigParameters()         # calls initialize_parameters_to_default of the C API
+    # set_kernel!(config, "kMaternARD5")  # calls set_kernel of the C API - more accurate
+    set_kernel!(config, bkernel)  # calls set_kernel of the C API
+    config.sc_type = bsctype # maximum a posteriori method
+    config.noise = 1.0e-9
+    # config.l_type = bltype # Markov Chain Monte Carlo
+    config.n_inner_iterations = 200
+    config.n_init_samples = 100
+    config.random_seed = 1
+    config.force_jump = 50
+    config.verbose_level = 0
 
-    return model, value(Rcsf), value(E), value(P_0)
+    optimizer, optimum = bayes_optimization(errfunBayes, lowerbound, upperbound, config)
+
+    Rcsf = optimizer[1]
+    E = optimizer[2]
+    P_0 = optimizer[3]
+
+    return Rcsf, E, P_0
 end
