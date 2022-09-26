@@ -10,31 +10,35 @@ function getres(P)
 end
 
 function ∇f(G::AbstractVector{T}, X::T...) where {T}
-    # I_b = X[1]
-    Rcsf = X[1]
-    E = X[2]
-    P_0 = X[3]
 
-    # It = I_inf + I_b
-    # ΔP = P_b - P_0
-    # Q = I_inf * exp(E * t * It)
+    # Exact analytical solutions to derivatives
+    @Symbolics.variables E P_0 I_inf P_b Rcsf
+    f = P_0 + (((P_b - P_0) / Rcsf) + I_inf) * (P_b + P_0) / (((P_b - P_0) / Rcsf) + I_inf*exp(-E*(((P_b - P_0) / Rcsf) + I_inf)))
 
-    # G[1] = ΔP/(Q+I_b)-(ΔP*It*(1-E*I_inf*t*exp(-E*t*It)))/(Q+I_b)^2
-    # G[2] = (It^2*ΔP*t*Q)/(I_b*exp(It*t*E)+I_inf)^2
-    # G[3] = 1-It/(Q+I_b)
+    dRcsf = Differential(Rcsf)
+    df = expand_derivatives(dRcsf(f))
+    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    G[1] = Symbolics.value(fval)
 
-    # G[1] = -(I_inf * (P_b - P_0) * exp(E * (I_b + I_inf)) * (exp(E * (I_b + I_inf)) - E * I_b - E * I_inf - 1)) / (I_b * exp(E * (I_b + I_inf)) + I_inf)^2
-    # G[2] = (I_inf * (I_inf + I_b)^2 * (P_b - P_0) * exp((I_inf + I_b) * E)) / (I_b * exp((I_inf + I_b) * E) + I_inf)^2
-    # G[3] = 1 - (I_inf + I_b) / (I_inf * exp(-E * (I_inf + I_b)) + I_b)
+    dE = Differential(E)
+    df = expand_derivatives(dE(f))
+    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    G[2] = Symbolics.value(fval)
 
-    # G[1] = ((P_b-P_0)^2*exp(E*t*((P_b-P_0)/Rcsf+1))*(Rcsf*exp(E*t*((P_b-P_0)/Rcsf+1))+(-E*t-1)*Rcsf+(E*P_0-E*P_b)*t))/(Rcsf*((P_b-P_0)*exp(E*t*((P_b-P_0)/Rcsf+1))+Rcsf)^2)
-    # G[2] = ((P_b-P_0)*(Rcsf+P_b-P_0)^2*t*exp(((P_b-P_0)/Rcsf+1)*t*E))/((P_b-P_0)*exp(((P_b-P_0)/Rcsf+1)*t*E)+Rcsf)^2
-    # G[3] = -((E*t*P_0^2+(-E*Rcsf-2*E*P_b)*t*P_0+(E*P_b*Rcsf+E*P_b^2)*t+Rcsf^2)*exp(E*t*((P_b-P_0)/Rcsf+1))-Rcsf^2)/((P_0-P_b)*exp(E*t*((P_b-P_0)/Rcsf+1))-Rcsf)^2
+    dP0 = Differential(P_0)
+    df = expand_derivatives(dP0(f))
+    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    G[3] = Symbolics.value(fval)
 
-    G[1] = ((P_b - P_0)^2 * exp(E * ((P_b - P_0) / Rcsf + 1)) * (Rcsf * exp(E * ((P_b - P_0) / Rcsf + 1)) + (-E - 1) * Rcsf + (E * P_0 - E * P_b))) / (Rcsf * ((P_b - P_0) * exp(E * ((P_b - P_0) / Rcsf + 1)) + Rcsf)^2)
-    G[2] = ((P_b - P_0) * (Rcsf + P_b - P_0)^2 * exp(((P_b - P_0) / Rcsf + 1) * E)) / ((P_b - P_0) * exp(((P_b - P_0) / Rcsf + 1) * E) + Rcsf)^2
-    G[3] = -((E * P_0^2 + (-E * Rcsf - 2 * E * P_b) * P_0 + (E * P_b * Rcsf + E * P_b^2) + Rcsf^2) * exp(E * ((P_b - P_0) / Rcsf + 1)) - Rcsf^2) / ((P_0 - P_b) * exp(E * ((P_b - P_0) / Rcsf + 1)) - Rcsf)^2
+    # P_b = Data["P_b"]
+    # I_inf = Data["I_inf"]
+    # Rcsf = X[1]
+    # E = X[2]
+    # P_0 = X[3]
 
+    # G[1] = -(P_0 + P_b) * (-P_0 + P_b) / (Rcsf^2 * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (-(-P_0 + P_b) / Rcsf^2 + E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (-P_0 + P_b) * I_inf / Rcsf^2) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
+    # G[2] = exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (P_0 + P_b) * I_inf * (I_inf + (-P_0 + P_b) / Rcsf)^2 / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
+    # G[3] = 1 + (I_inf + (-P_0 + P_b) / Rcsf) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf) - (P_0 + P_b) / (Rcsf * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf / Rcsf - Rcsf^(-1)) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
 
     return
 end
@@ -220,7 +224,7 @@ function plot_model(I_b, E, P_0, ICP, dsampf, trend)
         errorVal += (ICP[i] - y)^2
         P_model[i] = y
     end
-    global fitErrorVal = sqrt(errorVal/length(ICPm))
+    global fitErrorVal = 100 * sqrt(errorVal) / length(ICPm) / abs(mean(ICP[infusion_start_frame:infusion_end_frame]))
 
     ICPm = P_model[infusion_start_frame:infusion_end_frame]
     P_m[infusion_start_frame:infusion_end_frame] = ICPm
@@ -254,7 +258,7 @@ function errfun(Rcsf::Real, E::Real, P_0::Real)
     δub = delta.(I_b .- Ib_upper)
     δ = C .* vcat(δlb, δub)
     penalty = sum(δ .^ κ)
-    
+
     # global fitErrorVal = 100 * (sqrt(errorVal) / length(Pm) / abs(mean(Pm)))
     return errorVal + penalty
 end
@@ -265,6 +269,7 @@ function errfunBayes(x)
     P_0 = x[3]
 
     errorVal = 0.0
+
     ΔP = Data["P_b"] - P_0
     I_b = ΔP / Rcsf
     It = I_b + Data["I_inf"]
@@ -284,7 +289,7 @@ end
 function getModelNL(lowerbound, upperbound, optalg)
     model = Model(NLopt.Optimizer)
     set_optimizer_attribute(model, "algorithm", optalg)
-    register(model, :errfun, 3, errfun, autodiff=true)
+    register(model, :errfun, 3, errfun, ∇f)
 
     @variable(model, lowerbound[1] <= Rcsf <= upperbound[1])
     @variable(model, lowerbound[2] <= E <= upperbound[2])
@@ -296,8 +301,8 @@ function getModelNL(lowerbound, upperbound, optalg)
     set_start_value(E, minimum([Data["E"], 1.0]))
     set_start_value(P_0, minimum([0.0, Data["P_b"]]))
 
-    # JuMP.optimize!(model)
-    optimize!(model)
+    JuMP.optimize!(model)
+    # optimize!(model)
     return value(Rcsf), value(E), value(P_0)
 end
 
