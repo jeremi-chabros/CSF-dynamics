@@ -1,6 +1,6 @@
 moving_average(vs, n) = [sum(@view vs[i:(i+n-1)]) / n for i in 1:(length(vs)-(n-1))]
 
-delta(i) = maximum([0, i]) > 0 ? 1 : 0
+delta(xnum) = maximum([0, xnum]) > 0 ? 1 : 0
 
 function getres(P)
     global Pm = P
@@ -12,33 +12,33 @@ end
 function ∇f(G::AbstractVector{T}, X::T...) where {T}
 
     # Exact analytical solutions to derivatives
-    @Symbolics.variables E P_0 I_inf P_b Rcsf
-    f = P_0 + (((P_b - P_0) / Rcsf) + I_inf) * (P_b + P_0) / (((P_b - P_0) / Rcsf) + I_inf*exp(-E*(((P_b - P_0) / Rcsf) + I_inf)))
+    # @Symbolics.variables E P_0 I_inf P_b Rcsf
+    # f = P_0 + (((P_b - P_0) / Rcsf) + I_inf) * (P_b + P_0) / (((P_b - P_0) / Rcsf) + I_inf*exp(-E*(((P_b - P_0) / Rcsf) + I_inf)))
 
-    dRcsf = Differential(Rcsf)
-    df = expand_derivatives(dRcsf(f))
-    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
-    G[1] = Symbolics.value(fval)
+    # dRcsf = Differential(Rcsf)
+    # df = expand_derivatives(dRcsf(f))
+    # fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    # G[1] = Symbolics.value(fval)
 
-    dE = Differential(E)
-    df = expand_derivatives(dE(f))
-    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
-    G[2] = Symbolics.value(fval)
+    # dE = Differential(E)
+    # df = expand_derivatives(dE(f))
+    # fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    # G[2] = Symbolics.value(fval)
 
-    dP0 = Differential(P_0)
-    df = expand_derivatives(dP0(f))
-    fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
-    G[3] = Symbolics.value(fval)
+    # dP0 = Differential(P_0)
+    # df = expand_derivatives(dP0(f))
+    # fval = substitute(df, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2]))
+    # G[3] = Symbolics.value(fval)
 
-    # P_b = Data["P_b"]
-    # I_inf = Data["I_inf"]
-    # Rcsf = X[1]
-    # E = X[2]
-    # P_0 = X[3]
+    P_b = Data["P_b"]
+    I_inf = Data["I_inf"]
+    Rcsf = X[1]
+    E = X[2]
+    P_0 = X[3]
 
-    # G[1] = -(P_0 + P_b) * (-P_0 + P_b) / (Rcsf^2 * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (-(-P_0 + P_b) / Rcsf^2 + E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (-P_0 + P_b) * I_inf / Rcsf^2) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
-    # G[2] = exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (P_0 + P_b) * I_inf * (I_inf + (-P_0 + P_b) / Rcsf)^2 / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
-    # G[3] = 1 + (I_inf + (-P_0 + P_b) / Rcsf) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf) - (P_0 + P_b) / (Rcsf * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf / Rcsf - Rcsf^(-1)) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
+    G[1] = -(P_0 + P_b) * (-P_0 + P_b) / (Rcsf^2 * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (-(-P_0 + P_b) / Rcsf^2 + E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (-P_0 + P_b) * I_inf / Rcsf^2) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
+    G[2] = exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * (P_0 + P_b) * I_inf * (I_inf + (-P_0 + P_b) / Rcsf)^2 / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
+    G[3] = 1 + (I_inf + (-P_0 + P_b) / Rcsf) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf) - (P_0 + P_b) / (Rcsf * ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)) - (P_0 + P_b) * (I_inf + (-P_0 + P_b) / Rcsf) * (E * exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf / Rcsf - Rcsf^(-1)) / ((-P_0 + P_b) / Rcsf + exp(-E * (I_inf + (-P_0 + P_b) / Rcsf)) * I_inf)^2
 
     return
 end
@@ -241,7 +241,34 @@ function plot_model(I_b, E, P_0, ICP, dsampf, trend)
     # Plot model prediction from beginning until end of plateau
     plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1], xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:plateau_end;], [0:30:plateau_end;] ./ 10),
         label="Model", grid=false, titlefontsize=8, titlealign=:left, background=RGB(0.13, 0.14, 0.14))
-    title!("I_b = $I_b\n" * "Rcsf = $(value(Rcsf))\n" * "E = $(value(E))\n" * "P_0 = $(value(P_0)))\n" * "error = $fitErrorVal")
+    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $(round(fitErrorVal,digits=4))")
+end
+
+function press_vol_curve(Rcsf, P_0)
+    P_b = Data["P_b"]
+    I_inf = Data["I_inf"]
+
+    ΔP = P_b - P_0
+    I_b = ΔP / Rcsf
+    dpress = zeros(length(Pm))
+    dvol = zeros(length(Pm))
+    for i = 2:length(Pm)
+        dvol[i] = dvol[i-1] + (I_inf + I_b - (Pm[i] - P_0) / Rcsf) * 1 / 6
+        dpress[i] = (Pm[i] - P_0) / (P_b - P_0)
+    end
+
+    volRes = dvol[dpress.>0]
+    pressRes = dpress[dpress.>0]
+    y = log.(pressRes)
+    coefval = CurveFit.curve_fit(LinearFit, volRes, y)
+    fitted_curve = coefval.(volRes)
+    ydash = mean(y)
+    SSres = sum((y .- fitted_curve).^2)
+    SStot = sum((y .- ydash).^2)
+    R2 = 1 - (SSres/SStot)
+    MSE = SSres/length(y)
+
+    return R2, MSE
 end
 
 function errfun(Rcsf::Real, E::Real, P_0::Real)
@@ -254,13 +281,17 @@ function errfun(Rcsf::Real, E::Real, P_0::Real)
         Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
         errorVal += (Pm[i] - Pᵢ)^2
     end
-    δlb = delta.(Ib_lower .- I_b)
-    δub = delta.(I_b .- Ib_upper)
-    δ = C .* vcat(δlb, δub)
-    penalty = sum(δ .^ κ)
+    # δlb = delta.(Ib_lower .- I_b)
+    # δub = delta.(I_b .- Ib_upper)
+    # δ = C .* vcat(δlb, δub)
+    # penalty = sum(δ .^ κ)
 
-    # global fitErrorVal = 100 * (sqrt(errorVal) / length(Pm) / abs(mean(Pm)))
-    return errorVal + penalty
+    I_b < Ib_upper ? δub = -log(Ib_upper - I_b) : δub = 10^15
+    I_b > Ib_lower ? δlb = -log(I_b - Ib_lower) : δlb = 10^15
+    penalty = δub + δlb
+    R2, MSE = press_vol_curve(Rcsf, P_0)
+
+    return errorVal + penalty + MSE*100
 end
 
 function errfunBayes(x)
@@ -278,17 +309,24 @@ function errfunBayes(x)
         Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
         errorVal += (Pm[i] - Pᵢ)^2
     end
-    δlb = delta.(Ib_lower .- I_b)
-    δub = delta.(I_b .- Ib_upper)
-    δ = C .* vcat(δlb, δub)
-    penalty = sum(δ .^ κ)
-    # global fitErrorVal = 100 * (sqrt(errorVal) / length(Pm) / abs(mean(Pm)))
+    # δlb = delta.(Ib_lower .- I_b)
+    # δub = delta.(I_b .- Ib_upper)
+    # δ = C .* vcat(δlb, δub)
+    # penalty = sum(δ .^ κ)
+    
+    davson = Rcsf * I_b + P_0
+    davson < Data["P_p"] ? δR = -log(Data["P_p"] - davson) : δR = 10^15
+    I_b < Ib_upper ? δub = -log(Ib_upper - I_b) : δub = 10^15
+    I_b > Ib_lower ? δlb = -log(I_b - Ib_lower) : δlb = 10^15
+    penalty = δub + δlb + δR
+
     return errorVal + penalty
 end
 
-function getModelNL(lowerbound, upperbound, optalg)
+function getModelNL(lowerbound, upperbound, optalg, x0)
     model = Model(NLopt.Optimizer)
     set_optimizer_attribute(model, "algorithm", optalg)
+    set_optimizer_attribute(model, "local_optimizer", :LD_LBFGS)
     register(model, :errfun, 3, errfun, ∇f)
 
     @variable(model, lowerbound[1] <= Rcsf <= upperbound[1])
@@ -297,9 +335,13 @@ function getModelNL(lowerbound, upperbound, optalg)
     # @NLconstraint(model, c1, (P_b - P_0) / Rcsf <= 0.5)
     @NLobjective(model, Min, errfun(Rcsf, E, P_0))
 
-    set_start_value(Rcsf, Data["Rcsf"])
-    set_start_value(E, minimum([Data["E"], 1.0]))
-    set_start_value(P_0, minimum([0.0, Data["P_b"]]))
+    # set_start_value(Rcsf, Data["Rcsf"])
+    # set_start_value(E, minimum([Data["E"], 1.0]))
+    # set_start_value(P_0, minimum([0.0, Data["P_b"]]))
+
+    set_start_value(Rcsf, x0[1])
+    set_start_value(E, x0[2])
+    set_start_value(P_0, x0[3])
 
     JuMP.optimize!(model)
     # optimize!(model)
@@ -309,11 +351,10 @@ end
 function getModelBayes(lowerbound, upperbound, bkernel, bsctype, bltype)
 
     config = ConfigParameters()         # calls initialize_parameters_to_default of the C API
-    # set_kernel!(config, "kMaternARD5")  # calls set_kernel of the C API - more accurate
     set_kernel!(config, bkernel)  # calls set_kernel of the C API
     config.sc_type = bsctype # maximum a posteriori method
     config.noise = 1.0e-9
-    # config.l_type = bltype # Markov Chain Monte Carlo
+    isa(bltype, Number) ? 0 : config.l_type = bltype
     config.n_inner_iterations = 200
     config.n_init_samples = 100
     config.random_seed = 1
