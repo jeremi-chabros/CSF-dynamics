@@ -3,7 +3,8 @@ moving_average(vs, n) = [sum(@view vs[i:(i+n-1)]) / n for i in 1:(length(vs)-(n-
 delta(xnum) = maximum([0, xnum]) > 0 ? 1 : 0
 
 function local_opt(x0, optalg)
-    result = Optim.optimize(ferror, g!, h!, x0, optalg)
+    # result = Optim.optimize(ferror, g!, x0, optalg)
+    result = Optim.optimize(ferror, x0, optalg)
     min_val = Optim.minimum(result)
     return result, min_val
 end
@@ -21,7 +22,7 @@ function ferror(X)
     # I_b = logit(ΔP / Rcsf, Ib_lower, Ib_upper)
     I_b = ΔP / Rcsf
     It = I_b + Data["I_inf"]
-    for i = 1:length(Pm)
+    for i = 6:length(Pm)
         tᵢ = (i - 1) / 6
         Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
         errorVal += (Pm[i] - Pᵢ)^2
@@ -265,119 +266,55 @@ function readCSF(filename)
     return Data
 end
 
-function plot_model(I_b, E, P_0, ICP, dsampf, trend)
-    infusion_start_frame = Data["infusion_start_frame"]
-    infusion_end_frame = Data["infusion_end_frame"]
-    plateau_start = Data["plateau_start"]
-    plateau_end = Data["plateau_end"]
-    P_b = Data["P_b"]
-    P_p = Data["P_p"]
-    I_inf = Data["I_inf"]
-    numsamples = length(ICP)
-    infusion_end_frame > numsamples ? (global infusion_end_frame = numsamples) : 0
-    # println("Estimated parameters:\nIₐ = $Ibr [mL/min]\n" * "E = $Er [mmHg/mL]\n" * "P₀ = $P0r [mmHg]\n")
+# function plot_model(I_b, E, P_0, ICP, dsampf, trend)
+#     infusion_start_frame = Data["infusion_start_frame"]
+#     infusion_end_frame = Data["infusion_end_frame"]
+#     plateau_start = Data["plateau_start"]
+#     plateau_end = Data["plateau_end"]
+#     P_b = Data["P_b"]
+#     P_p = Data["P_p"]
+#     I_inf = Data["I_inf"]
+#     numsamples = length(ICP)
+#     infusion_end_frame > numsamples ? (global infusion_end_frame = numsamples) : 0
+#     # println("Estimated parameters:\nIₐ = $Ibr [mL/min]\n" * "E = $Er [mmHg/mL]\n" * "P₀ = $P0r [mmHg]\n")
 
-    gg = moving_average(ICP, dsampf)
-    g0 = zeros(length(ICP))
-    g0 .+= P_b
-    g0[Int(dsampf / 2):Int(dsampf / 2)+length(gg)-1] = gg
-    g0[Int(dsampf / 2)+length(gg):end] .= P_p
+#     gg = moving_average(ICP, dsampf)
+#     g0 = zeros(length(ICP))
+#     g0 .+= P_b
+#     g0[Int(dsampf / 2):Int(dsampf / 2)+length(gg)-1] = gg
+#     g0[Int(dsampf / 2)+length(gg):end] .= P_p
 
-    P_m = zeros(numsamples)
-    P_m .+= P_b
-    P_model = zeros(numsamples)
-    ICPm = zeros(infusion_end_frame - infusion_start_frame)
+#     P_m = zeros(numsamples)
+#     P_m .+= P_b
+#     P_model = zeros(numsamples)
+#     ICPm = zeros(infusion_end_frame - infusion_start_frame)
 
-    errorVal = 0.0
-    for i = infusion_start_frame:infusion_end_frame
-        tᵢ = (i - infusion_start_frame) / 6
-        It = I_b + I_inf
-        ΔP = P_b - P_0
-        y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
-        errorVal += (ICP[i] - y)^2
-        P_model[i] = y
-    end
-    global fitErrorVal = 100 * sqrt(errorVal) / length(ICPm) / abs(mean(ICP[infusion_start_frame:infusion_end_frame]))
+#     errorVal = 0.0
+#     for i = infusion_start_frame:infusion_end_frame
+#         tᵢ = (i - infusion_start_frame) / 6
+#         It = I_b + I_inf
+#         ΔP = P_b - P_0
+#         y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
+#         errorVal += (ICP[i] - y)^2
+#         P_model[i] = y
+#     end
+#     global fitErrorVal = 100 * sqrt(errorVal) / length(ICPm) / abs(mean(ICP[infusion_start_frame:infusion_end_frame]))
 
-    ICPm = P_model[infusion_start_frame:infusion_end_frame]
-    P_m[infusion_start_frame:infusion_end_frame] = ICPm
-    P_m[infusion_end_frame+1:end] .= ICPm[end]
+#     ICPm = P_model[infusion_start_frame:infusion_end_frame]
+#     P_m[infusion_start_frame:infusion_end_frame] = ICPm
+#     P_m[infusion_end_frame+1:end] .= ICPm[end]
 
-    # plateau_end=numsamples
-    vspan([infusion_start_frame, infusion_end_frame], color=RGB(0.15, 0.17, 0.17), legend=:outertopright, label="Infusion period", linecolor=:transparent, background=RGB(0.13, 0.15, 0.15))
-    trend ? plot!(g0, linewidth=2, alpha=0.8, linecolor=:violet, label="Moving average") : 0 # Plot moving average
+#     # plateau_end=numsamples
+#     vspan([infusion_start_frame, infusion_end_frame], color=RGB(0.15, 0.17, 0.17), legend=:outertopright, label="Infusion period", linecolor=:transparent, background=RGB(0.13, 0.15, 0.15))
+#     trend ? plot!(g0, linewidth=2, alpha=0.8, linecolor=:violet, label="Moving average") : 0 # Plot moving average
 
-    plot!(ICP, linecolor=:cadetblue, linewidth=2, label="Measured", alpha=0.7) # Plot ICP from beginning until end of plateau
-    # Plot model prediction from beginning until end of plateau
-    plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1], xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:infusion_end_frame;], [0:30:infusion_end_frame;] ./ 6),
-        label="Model", grid=false, titlefontsize=8, titlealign=:left, background=RGB(0.13, 0.15, 0.15))
-    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $(round(fitErrorVal,digits=4))")
-end
+#     plot!(ICP, linecolor=:cadetblue, linewidth=2, label="Measured", alpha=0.7) # Plot ICP from beginning until end of plateau
+#     # Plot model prediction from beginning until end of plateau
+#     plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1], xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:infusion_end_frame;], [0:30:infusion_end_frame;] ./ 6),
+#         label="Model", grid=false, titlefontsize=8, titlealign=:left, background=RGB(0.13, 0.15, 0.15))
+#     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $(round(fitErrorVal,digits=4))")
+# end
 
-function get_error_score(I_b, E, P_0)
-    global tslength = minimum([Data["infusion_end_frame"], length(Data["ICP"])])
-    errorVal = 0.0
-    I_inf = Data["I_inf"]
-    P_b = Data["P_b"]
-    ICP = Data["ICP"]
-    # I_b = (Data["P_b"] - P_0) / Rcsf
-    for i = Data["infusion_start_frame"]:tslength
-        tᵢ = (i - Data["infusion_start_frame"]) / 6
-        It = I_b + I_inf
-        ΔP = P_b - P_0
-        y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
-        errorVal += (ICP[i] - y)^2
-    end
-    fitErrorVal = 100 * sqrt(errorVal) / (Data["infusion_end_frame"] - Data["infusion_start_frame"]) / abs(mean(ICP[Data["infusion_start_frame"]:tslength]))
-    return fitErrorVal
-    # return errorVal
-end
-
-function get_error_score_Pss(I_b, E)
-    global tslength = minimum([Data["infusion_end_frame"], length(Data["ICP"])])
-    errorVal = 0.0
-    I_inf = Data["I_inf"]
-    P_0 = Data["P_0"]
-    P_b = Data["P_b"]
-    ICP = Data["ICP"]
-    ΔP = P_b - P_0
-    # I_b = (Data["P_b"] - P_0) / Rcsf
-    for i = Data["infusion_start_frame"]:tslength
-        tᵢ = (i - Data["infusion_start_frame"]) / 6
-        It = I_b + I_inf
-        y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
-        errorVal += (ICP[i] - y)^2
-    end
-    fitErrorVal = 100 * sqrt(errorVal) / (Data["infusion_end_frame"] - Data["infusion_start_frame"]) / abs(mean(ICP[Data["infusion_start_frame"]:tslength]))
-    return fitErrorVal
-    # return errorVal
-end
-
-function get_error_score_Juniewicz(I_b, E)
-    global tslength = minimum([Data["infusion_end_frame"], length(Data["ICP"])])
-    errorVal = 0.0
-    I_inf = Data["I_inf"]
-    P_0 = Data["P_0"]
-    P_b = Data["P_b"]
-    ICP = Data["ICP"]
-    ΔP = P_b - P_0
-    It = I_b + 1
-    # I_b = (Data["P_b"] - P_0) / Rcsf
-    nn=1
-    pseries = zeros(tslength - Data["infusion_start_frame"] + 1)
-    for i = Data["infusion_start_frame"]:tslength
-        tᵢ = (i - Data["infusion_start_frame"]) / 6
-        y = It * ΔP / (I_b + (exp(-E * It * I_inf * tᵢ))) + P_0 + (I_inf * Data["Rn"])
-        pseries[nn] = y
-        errorVal += (ICP[i] - y)^2
-        nn+=1
-    end
-    global pseries = pseries
-    global errorVal = errorVal
-    fitErrorVal = 100 * sqrt(errorVal) / (Data["infusion_end_frame"] - Data["infusion_start_frame"]) / abs(mean(ICP[Data["infusion_start_frame"]:tslength]))
-    return fitErrorVal
-    # return errorVal
-end
 
 function press_vol_curve(Rcsf, P_0)
     P_b = Data["P_b"]
@@ -452,8 +389,10 @@ function errfunPss(Rcsf::Real, E::Real, P_0::Real, Pss::Real)
         Pᵢ = It * (Data["P_b"] - P_0) / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
         errorVal += (Pm[i] - Pᵢ)^2
     end
-    # davson = Rcsf * I_b + P_0
+    # davson = Rcsf * I_b + P_0 # Look into again
     # davson < Data["P_p"] ? δR = -log(Data["P_p"] - davson) : δR = 10^15
+
+
     # I_b < Ib_upper ? δub = -log(Ib_upper - I_b) : δub = 10^15
     # I_b > Ib_lower ? δlb = -log(I_b - Ib_lower) : δlb = 10^15
     # penalty = δub + δlb + δR
@@ -758,18 +697,13 @@ function g!(G, X)
     Rcsf = X[1]
     E = X[2]
     P_0 = X[3]
-    # I_b = (P_b - P_0) / Rcsf
-    # t = tᵢ
+    t = 0
 
-    # G[1] = (-(P_b - P_0) * ((P_b - P_0) / (Rcsf^2))) / (I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - ((P_0 - P_b) / (Rcsf^2) + E * I_inf * t * ((P_b - P_0) / (Rcsf^2)) * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
-    # G[2] = I_inf * t * (I_inf + (P_b - P_0) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2)) * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))
-    # G[3] = 1 + ((P_0 - P_b) / Rcsf + (P_0 - P_b) / Rcsf - I_inf) / (I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - (-1 / Rcsf + (E * I_inf * t * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
+    G[1] = (-(P_b - P_0) * ((P_b - P_0) / (Rcsf^2))) / (I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - ((P_0 - P_b) / (Rcsf^2) + E * I_inf * t * ((P_b - P_0) / (Rcsf^2)) * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
 
-    G[1] = (-(P_b - P_0) * ((P_b - P_0) / (Rcsf^2))) / (I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - ((P_0 - P_b) / (Rcsf^2) + E * I_inf * ((P_b - P_0) / (Rcsf^2)) * exp(-E * (I_inf + (P_b - P_0) / Rcsf))) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
+    G[2] = I_inf * t * (I_inf + (P_b - P_0) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2)) * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))
 
-    G[2] = -I_inf * ((P_0 - P_b) / Rcsf - I_inf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2)) * exp(-E * (I_inf + (P_b - P_0) / Rcsf))
-
-    G[3] = 1 + ((P_0 - P_b) / Rcsf + (P_0 - P_b) / Rcsf - I_inf) / (I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - (-1 / Rcsf + (E * I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf))) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
+    G[3] = 1 + ((P_0 - P_b) / Rcsf + (P_0 - P_b) / Rcsf - I_inf) / (I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - (-1 / Rcsf + (E * I_inf * t * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
 end
 
 function h!(H, X)
@@ -793,8 +727,8 @@ end
 
 function solveDerivatives()
     Symbolics.@variables E P_0 I_inf P_b Rcsf t I_b
-    f = P_0 + ((((P_b - P_0) / Rcsf) + I_inf) * (P_b - P_0) / (((P_b - P_0) / Rcsf) + I_inf * exp(-E * (((P_b - P_0) / Rcsf) + I_inf))))
 
+    f = P_0 + (((((P_b - P_0) / Rcsf) + I_inf) * (P_b - P_0)) / (((P_b - P_0) / Rcsf) + I_inf * exp(-E * t * (((P_b - P_0) / Rcsf) + I_inf))))
     # First order partiala derivatives
     dRcsf = Differential(Rcsf)
     diffRcsf = expand_derivatives(dRcsf(f))
@@ -804,24 +738,32 @@ function solveDerivatives()
     diffP0 = expand_derivatives(dP0(f))
 
     #Second order partial derivatives
-    global H1 = expand_derivatives(dRcsf(diffRcsf))
-    global H2 = expand_derivatives(dRcsf(diffE))
-    global H3 = expand_derivatives(dRcsf(diffP0))
+    # global H1 = expand_derivatives(dRcsf(diffRcsf))
+    # global H2 = expand_derivatives(dRcsf(diffE))
+    # global H3 = expand_derivatives(dRcsf(diffP0))
 
-    global H4 = expand_derivatives(dE(diffRcsf))
-    global H5 = expand_derivatives(dE(diffE))
-    global H6 = expand_derivatives(dE(diffP0))
+    # global H4 = expand_derivatives(dE(diffRcsf))
+    # global H5 = expand_derivatives(dE(diffE))
+    # global H6 = expand_derivatives(dE(diffP0))
 
-    global H7 = expand_derivatives(dP0(diffRcsf))
-    global H8 = expand_derivatives(dP0(diffE))
-    global H9 = expand_derivatives(dP0(diffP0))
+    # global H7 = expand_derivatives(dP0(diffRcsf))
+    # global H8 = expand_derivatives(dP0(diffE))
+    # global H9 = expand_derivatives(dP0(diffP0))
 
     return diffRcsf, diffE, diffP0
 end
 
-function plotmodel(I_b, E, P_0, cscheme)
+function plotmodel(I_b, E, P_0, cscheme, fmodel)
 
     if cscheme == "dark"
+        # FOR WEBSITE
+        # bgcolor=:transparent
+        # fgcolor=:transparent
+        # icp_color=:white
+        # model_color=parse(Colorant,"#4A212E")
+        # inf_color=:white
+        # linw = 3;
+
         bgcolor = RGB(0.13, 0.15, 0.15)
         fgcolor = :white
         icp_color = :cadetblue
@@ -843,30 +785,162 @@ function plotmodel(I_b, E, P_0, cscheme)
 
     plateau_end > infend ? endidx = plateau_end : endidx = infend
 
-    vspan([infstart, infend], fillcolor=inf_color, alpha=0.5, linecolor=:transparent, label="Infusion")
+    # vspan([infstart, infend], fillcolor=inf_color, alpha=0.5, linecolor=:transparent, label="Infusion")
+    vspan([infstart, infend], fillcolor=inf_color, alpha=0.05, linecolor=:transparent, label="Infusion")
 
     xtks = LinRange(0, infend, 10)
     xtklabels = round.(collect(xtks) ./ 6, digits=1)
 
     plot!(icp, color=icp_color, background=bgcolor, lw=2, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, legend=:outertopright, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(firstindex(icp), endidx))
 
+    #FOR WEBSITE
+    # plot!(icp, color=icp_color, background=bgcolor, lw=3, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(50, endidx),axis=false,legend=false, dpi=300)
+
     Pm = zeros(endidx)
-    Pmodel, rmserr = calc_model_plot(I_b, E, P_0)
+    if fmodel == "Pss"
+        Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
+    elseif fmodel == "4param"
+        # Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
+    else
+        Pmodel, rmserr = calc_model_plot(I_b, E, P_0)
+    end
+
     Pm[firstindex(Pm):infend] .= Pmodel
     Pm[infend+1:end] .= Pm[infend]
     Pm[firstindex(Pm):infstart] .= P_b
 
-    plot!(Pm, c=model_color, label="Model", linestyle=:dash, lw=2)
+    plot!(Pm, c=model_color, label="Model", linestyle=:dash, lw=3)
 
     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
+
+function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
+
+    if cscheme == "dark"
+        # FOR WEBSITE
+        # bgcolor=:transparent
+        # fgcolor=:transparent
+        # icp_color=:white
+        # model_color=parse(Colorant,"#4A212E")
+        # inf_color=:white
+        # linw = 3;
+
+        bgcolor = RGB(0.13, 0.15, 0.15)
+        fgcolor = :white
+        icp_color = :cadetblue
+        model_color = :orange
+        inf_color = RGB(0.15, 0.17, 0.17)
+    else
+        bgcolor = :white
+        fgcolor = :black
+        icp_color = :teal
+        model_color = :orangered2
+        inf_color = :grey95
+    end
+
+    icp = Data["ICP"]
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    P_b = Data["P_b"]
+    plateau_end = Data["plateau_end"]
+
+    plateau_end > infend ? endidx = plateau_end : endidx = infend
+
+    # vspan([infstart, infend], fillcolor=inf_color, alpha=0.5, linecolor=:transparent, label="Infusion")
+    vspan([infstart, infend], fillcolor=inf_color, alpha=0.05, linecolor=:transparent, label="Infusion")
+
+    xtks = LinRange(0, infend, 10)
+    xtklabels = round.(collect(xtks) ./ 6, digits=1)
+
+    plot!(icp, color=icp_color, background=bgcolor, lw=2, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, legend=:outertopright, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(firstindex(icp), endidx))
+
+    #FOR WEBSITE
+    # plot!(icp, color=icp_color, background=bgcolor, lw=3, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(50, endidx),axis=false,legend=false, dpi=300)
+
+    Pm = zeros(endidx)
+    if fmodel == "Pss"
+        Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
+    elseif fmodel == "4param"
+        # Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
+    else
+        Pmodel, rmserr = calc_model_plot(I_b, E, P_0)
+    end
+
+    Pm[firstindex(Pm):infend] .= Pmodel
+    Pm[infend+1:end] .= Pm[infend]
+    Pm[firstindex(Pm):infstart] .= P_b
+
+    num_iter = 10000
+    w = getCI(μ, σ, num_iter)
+    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Model", linestyle=:dash, lw=3)
+
+    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
+end
+
+function getCI(μ, σ, num_iter)
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    icp = Data["ICP"][infstart:infend]
+    Pmodel = zeros(infend)
+    model_err = zeros(num_iter)
+    θ = zeros(3, num_iter)
+
+    for i = 1:3
+        d = Normal(μ[i], σ[i])
+        θ[i, :] = rand(d, num_iter)
+    end
+    θ[1, :] = (Data["P_b"] .- θ[3, :]) ./ θ[1, :]
+
+    for j = 1:num_iter
+        θᵢ = θ[:, j]
+        Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], θᵢ[3])[1]
+        Pmodel = Pmodel[infstart:end]
+        model_err[j] = mean(abs.(Pmodel .- icp))
+    end
+
+    x̂ = mean(model_err)
+    s = std(model_err)
+    z = 0.95
+    n = num_iter
+
+    ci_low = x̂ + z * s / sqrt(n)
+    ci_high = x̂ + z * s / sqrt(n)
+    y1 = Pmodel .- ci_low
+    y2 = Pmodel .+ ci_high
+    w = (y2 .- y1) ./ 2
+
+    return w
+end
+
 
 function calc_model_plot(I_b, E, P_0)
     infstart = Data["infusion_start_frame"]
     infend = Data["infusion_end_frame"]
     I_inf = Data["I_inf"]
     Rn = Data["Rn"]
-    P_b = Data["P_b"]
+    ΔP = Data["P_b"] - P_0
+    icp = Data["ICP"]
+    It = I_b + I_inf
+    Pm = zeros(infend) .+ Data["P_b"]
+    errorVal = 0.0
+
+    for i = infstart:infend
+        t = (i - infstart) / 6
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+        Pm[i] = y
+        errorVal += (icp[i] - y)^2
+    end
+
+    rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm, round(rmserr, digits=4)
+end
+
+function calc_model_plot_Pss(I_b, E)
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    I_inf = Data["I_inf"]
+    P_0 = Data["P_0"]
+    Rn = Data["Rn"]
     ΔP = Data["P_b"] - P_0
     icp = Data["ICP"]
     It = I_b + I_inf
@@ -881,5 +955,41 @@ function calc_model_plot(I_b, E, P_0)
     end
 
     rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
-    return Pm, round(rmserr,digits=4)
+    return Pm, round(rmserr, digits=5)
 end
+
+function solvemodel(Rcsf, E, P_0)
+    # function solvemodel(I_b, E, P_0)
+    
+        Rcsf = sigmoid(Rcsf, lb[1], ub[1])
+        E = sigmoid(E, lb[2], ub[2])
+        P_0 = sigmoid(P_0, lb[3], ub[3])
+        # I_b = sigmoid(I_b,lb[4],ub[4])
+    
+        I_b = (Data["P_b"] - P_0) / Rcsf
+    
+        infstart = Data["infusion_start_frame"]
+        infend = Data["infusion_end_frame"]
+        I_inf = Data["I_inf"]
+        Rn = Data["Rn"]
+        ΔP = Data["P_b"] - P_0
+        icp = Data["ICP"]
+        It = I_b + I_inf
+        Pm = zeros(infend)
+        errorVal = 0.0
+    
+        for i = infstart:infend
+            t = (i - infstart) / 6
+            y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+            Pm[i] = y
+            errorVal += (icp[i] - y)^2
+        end
+    
+        # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+        return Pm
+    end
+    
+    # transform sigmoid function
+    function sigmoid(x, lb, ub)
+        (ub - lb) * (1/(1 + exp(-x))) + lb
+    end
