@@ -323,9 +323,10 @@ function press_vol_curve(Rcsf, P_0)
     ΔP = P_b - P_0
     I_b = ΔP / Rcsf
 
-    st = Int64(round(length(Pm) * 0.1, digits=0))
-    en = Int64(round(length(Pm) * 0.9, digits=0))
-    npts = abs(en - st)
+    # st = Int64(round(length(Pm) * 0.1, digits=0))
+    # en = Int64(round(length(Pm) * 0.9, digits=0))
+    # npts = abs(en - st)
+    # npts = length(Pm)
 
     dpress = zeros(length(Pm))
     dvol = zeros(length(Pm))
@@ -338,8 +339,23 @@ function press_vol_curve(Rcsf, P_0)
         dpress[i] = (Pm[i] - P_0) / (P_b - P_0)
     end
 
+    volTotal = maximum(dvol)
     volRes = dvol[dpress.>0]
     pressRes = dpress[dpress.>0]
+
+    # rmFraction = 0.15
+    # Remove last x % infused volume
+    # rmidx = volRes .> (1-rmFraction)*volTotal
+    # rmidx = rmidx .|| volRes .< 0.05*volTotal
+
+    # Remove volume infused after reaching plateau
+    volRemove = (Data["infusion_end_frame"] - Data["plateau_start"]) * Data["I_inf"] / 60
+    rmidx = volRes .> (volTotal - volRemove)
+    rmidx = rmidx .|| volRes .< 0.05*volTotal
+    volRes = volRes[.~rmidx]
+    pressRes = pressRes[.~rmidx]
+    
+
     y = log.(pressRes)
     coefval = CurveFit.curve_fit(LinearFit, volRes, y)
     fitted_curve = coefval.(volRes)
@@ -835,7 +851,7 @@ function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
         fgcolor = :black
         icp_color = :teal
         model_color = :orangered2
-        inf_color = :grey95
+        inf_color = :skyblue
     end
 
     icp = Data["ICP"]
@@ -847,7 +863,68 @@ function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
     plateau_end > infend ? endidx = plateau_end : endidx = infend
 
     # vspan([infstart, infend], fillcolor=inf_color, alpha=0.5, linecolor=:transparent, label="Infusion")
-    vspan([infstart, infend], fillcolor=inf_color, alpha=0.05, linecolor=:transparent, label="Infusion")
+    vspan([infstart, infend], fillcolor=inf_color, alpha=0.1, linecolor=:transparent, label="Infusion")
+
+    xtks = LinRange(0, infend, 10)
+    xtklabels = round.(collect(xtks) ./ 6, digits=1)
+
+    plot!(icp, color=icp_color, background=bgcolor, lw=2, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, legend=:outertopright, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(firstindex(icp), endidx))
+
+    #FOR WEBSITE
+    # plot!(icp, color=icp_color, background=bgcolor, lw=3, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(50, endidx),axis=false,legend=false, dpi=300)
+
+    # Have to deal with this global
+    global Pm = zeros(endidx)
+    if fmodel == "Pss"
+        Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
+    else
+        Pmodel, rmserr = calc_model_plot(I_b, E, P_0)
+    end
+
+    Pm[firstindex(Pm):infend] .= Pmodel
+    Pm[infend+1:end] .= Pm[infend]
+    Pm[firstindex(Pm):infstart] .= P_b
+
+    num_iter = 10000
+    w, ci = getCI(μ, σ, num_iter)
+    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Bayes", linestyle=:dash, lw=3)
+    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
+end
+
+function plotmodel(I_b, E, P_0, Pss, μ, σ, cscheme, fmodel)
+
+    if cscheme == "dark"
+        # FOR WEBSITE
+        # bgcolor=:transparent
+        # fgcolor=:transparent
+        # icp_color=:white
+        # model_color=parse(Colorant,"#4A212E")
+        # inf_color=:white
+        # linw = 3;
+
+        bgcolor = RGB(0.13, 0.15, 0.15)
+        fgcolor = :white
+        icp_color = :cadetblue
+        model_color = :orange
+        inf_color = RGB(0.15, 0.17, 0.17)
+    else
+        bgcolor = :white
+        fgcolor = :black
+        icp_color = :teal
+        model_color = :orangered2
+        inf_color = :skyblue
+    end
+
+    icp = Data["ICP"]
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    P_b = Data["P_b"]
+    plateau_end = Data["plateau_end"]
+
+    plateau_end > infend ? endidx = plateau_end : endidx = infend
+
+    # vspan([infstart, infend], fillcolor=inf_color, alpha=0.5, linecolor=:transparent, label="Infusion")
+    vspan([infstart, infend], fillcolor=inf_color, alpha=0.1, linecolor=:transparent, label="Infusion")
 
     xtks = LinRange(0, infend, 10)
     xtklabels = round.(collect(xtks) ./ 6, digits=1)
@@ -858,23 +935,16 @@ function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
     # plot!(icp, color=icp_color, background=bgcolor, lw=3, grid=false, xticks=(xtks, xtklabels), foreground_color=fgcolor, label="ICP", ylims=[minimum(icp) * 0.9, maximum(icp) * 1.1], xlims=(50, endidx),axis=false,legend=false, dpi=300)
 
     Pm = zeros(endidx)
-    if fmodel == "Pss"
-        Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
-    elseif fmodel == "4param"
-        # Pmodel, rmserr = calc_model_plot_Pss(I_b, E)
-    else
-        Pmodel, rmserr = calc_model_plot(I_b, E, P_0)
-    end
+    Pmodel, rmserr = calc_model_plot(I_b, E, P_0, Pss)
 
     Pm[firstindex(Pm):infend] .= Pmodel
     Pm[infend+1:end] .= Pm[infend]
     Pm[firstindex(Pm):infstart] .= P_b
 
     num_iter = 10000
-    w = getCI(μ, σ, num_iter)
-    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Model", linestyle=:dash, lw=3)
-
-    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
+    w, ci = getCI(μ, σ, num_iter)
+    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Bayes", linestyle=:dash, lw=3)
+    # title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
 
 function getCI(μ, σ, num_iter)
@@ -883,19 +953,30 @@ function getCI(μ, σ, num_iter)
     icp = Data["ICP"][infstart:infend]
     Pmodel = zeros(infend)
     model_err = zeros(num_iter)
-    θ = zeros(3, num_iter)
+    numvars = length(μ)
+    θ = zeros(numvars, num_iter)
 
-    for i = 1:3
+    for i = 1:numvars
         d = Normal(μ[i], σ[i])
         θ[i, :] = rand(d, num_iter)
     end
-    θ[1, :] = (Data["P_b"] .- θ[3, :]) ./ θ[1, :]
 
-    for j = 1:num_iter
-        θᵢ = θ[:, j]
-        Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], θᵢ[3])[1]
-        Pmodel = Pmodel[infstart:end]
-        model_err[j] = mean(abs.(Pmodel .- icp))
+    if numvars == 3
+        θ[1, :] = (Data["P_b"] .- θ[3, :]) ./ θ[1, :]
+        for j = 1:num_iter
+            θᵢ = θ[:, j]
+            Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], θᵢ[3], θᵢ[3])[1]
+            Pmodel = Pmodel[infstart:end]
+            model_err[j] = mean(abs.(Pmodel .- icp))
+        end
+    else
+        θ[1, :] = (Data["P_b"] .- θ[4, :]) ./ θ[1, :]
+        for j = 1:num_iter
+            θᵢ = θ[:, j]
+            Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], θᵢ[3], θᵢ[4])[1]
+            Pmodel = Pmodel[infstart:end]
+            model_err[j] = mean(abs.(Pmodel .- icp))
+        end
     end
 
     x̂ = mean(model_err)
@@ -909,9 +990,8 @@ function getCI(μ, σ, num_iter)
     y2 = Pmodel .+ ci_high
     w = (y2 .- y1) ./ 2
 
-    return w
+    return w, ci_low
 end
-
 
 function calc_model_plot(I_b, E, P_0)
     infstart = Data["infusion_start_frame"]
@@ -919,6 +999,28 @@ function calc_model_plot(I_b, E, P_0)
     I_inf = Data["I_inf"]
     Rn = Data["Rn"]
     ΔP = Data["P_b"] - P_0
+    icp = Data["ICP"]
+    It = I_b + I_inf
+    Pm = zeros(infend) .+ Data["P_b"]
+    errorVal = 0.0
+
+    for i = infstart:infend
+        t = (i - infstart) / 6
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+        Pm[i] = y
+        errorVal += (icp[i] - y)^2
+    end
+
+    rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm, round(rmserr, digits=4)
+end
+
+function calc_model_plot(I_b, E, P_0, Pss)
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    I_inf = Data["I_inf"]
+    Rn = Data["Rn"]
+    ΔP = Data["P_b"] - Pss
     icp = Data["ICP"]
     It = I_b + I_inf
     Pm = zeros(infend) .+ Data["P_b"]
@@ -960,36 +1062,100 @@ end
 
 function solvemodel(Rcsf, E, P_0)
     # function solvemodel(I_b, E, P_0)
-    
-        Rcsf = sigmoid(Rcsf, lb[1], ub[1])
-        E = sigmoid(E, lb[2], ub[2])
-        P_0 = sigmoid(P_0, lb[3], ub[3])
-        # I_b = sigmoid(I_b,lb[4],ub[4])
-    
-        I_b = (Data["P_b"] - P_0) / Rcsf
-    
-        infstart = Data["infusion_start_frame"]
-        infend = Data["infusion_end_frame"]
-        I_inf = Data["I_inf"]
-        Rn = Data["Rn"]
-        ΔP = Data["P_b"] - P_0
-        icp = Data["ICP"]
-        It = I_b + I_inf
-        Pm = zeros(infend)
-        errorVal = 0.0
-    
-        for i = infstart:infend
-            t = (i - infstart) / 6
-            y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
-            Pm[i] = y
-            errorVal += (icp[i] - y)^2
-        end
-    
-        # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
-        return Pm
+
+    Rcsf = sigmoid(Rcsf, lb[1], ub[1])
+    E = sigmoid(E, lb[2], ub[2])
+    P_0 = sigmoid(P_0, lb[3], ub[3])
+    # I_b = sigmoid(I_b,lb[4],ub[4])
+
+    I_b = (Data["P_b"] - P_0) / Rcsf
+
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    I_inf = Data["I_inf"]
+    Rn = Data["Rn"]
+    ΔP = Data["P_b"] - P_0
+    icp = Data["ICP"]
+    It = I_b + I_inf
+    Pm = zeros(infend)
+    errorVal = 0.0
+
+    for i = infstart:infend
+        t = (i - infstart) / 6
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+        Pm[i] = y
+        errorVal += (icp[i] - y)^2
     end
-    
-    # transform sigmoid function
-    function sigmoid(x, lb, ub)
-        (ub - lb) * (1/(1 + exp(-x))) + lb
+
+    # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm
+end
+
+function solvemodel(Rcsf, E, P_0, Pss)
+    # function solvemodel(I_b, E, P_0)
+
+    Rcsf = sigmoid(Rcsf, lb[1], ub[1])
+    E = sigmoid(E, lb[2], ub[2])
+    P_0 = sigmoid(P_0, lb[3], ub[3])
+    Pss = sigmoid(Pss, lb[3], ub[3])
+    # I_b = sigmoid(I_b,lb[4],ub[4])
+
+    I_b = (Data["P_b"] - Pss) / Rcsf
+
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    I_inf = Data["I_inf"]
+    Rn = Data["Rn"]
+    ΔP = Data["P_b"] - Pss
+    icp = Data["ICP"]
+    It = I_b + I_inf
+    Pm = zeros(infend)
+    errorVal = 0.0
+
+    for i = infstart:infend
+        t = (i - infstart) / 6
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+        Pm[i] = y
+        errorVal += (icp[i] - y)^2
     end
+
+    # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm
+end
+
+function solvemodelPss(Rcsf, E, Pss)
+    # function solvemodel(I_b, E, P_0)
+
+    Rcsf = sigmoid(Rcsf, lb[1], ub[1])
+    E = sigmoid(E, lb[2], ub[2])
+    P_0 = Data["P_0"]
+    Pss = sigmoid(Pss, lb[3], ub[3])
+    # I_b = sigmoid(I_b,lb[4],ub[4])
+
+    I_b = (Data["P_b"] - Pss) / Rcsf
+
+    infstart = Data["infusion_start_frame"]
+    infend = Data["infusion_end_frame"]
+    I_inf = Data["I_inf"]
+    Rn = Data["Rn"]
+    ΔP = Data["P_b"] - Pss
+    icp = Data["ICP"]
+    It = I_b + I_inf
+    Pm = zeros(infend)
+    errorVal = 0.0
+
+    for i = infstart:infend
+        t = (i - infstart) / 6
+        y = It * ΔP / (I_b + (I_inf * exp(-E * It * t))) + P_0 + (I_inf * Rn)
+        Pm[i] = y
+        errorVal += (icp[i] - y)^2
+    end
+
+    # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm
+end
+
+# transform sigmoid function
+function sigmoid(x, lb, ub)
+    (ub - lb) * (1 / (1 + exp(-x))) + lb
+end

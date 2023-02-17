@@ -1,0 +1,55 @@
+\documentclass[12pt]{article}
+\usepackage[a4paper]{geometry}
+\usepackage{libertinust1math}
+\usepackage{libertinus}
+
+\title{Cerebrospinal fluid dynamics: Bayesian optimisation approach}
+\author{Jeremi Chabros}
+\date{\today}
+
+\newcommand{\rcsf}{R_\mathrm{csf}}
+\newcommand{\pss}{P_\mathrm{0}}
+
+\begin{document}
+
+\maketitle
+
+First, we choose a sum square error function
+%
+% $$ \mathrm{E} = \sum_i\frac{\left(D(t_i) - y(t_i | \theta)\right)^2}{2\sigma^2} ,$$
+
+$$ E = \sum_{t=0}^{T}\left(P_\mathrm{m}(t) - \hat{P}\left(\rcsf, E, \pss, t\right)\right)^2 ,$$ 
+%
+where $T$ is infusion duration, $P_\mathrm{m}$ is the measured ICP, and $\hat{P}$ is the ICP predicted by the model with resistance to CSF outflow ($\rcsf$), brain elastance coefficient ($E$), and reference pressure ($\pss$) as its parameters. The CSF dynamics model is defined as follows
+%
+$$ \hat{P} = \frac{(I_\mathrm{b} + I_\mathrm{inf})(P_\mathrm{b} - P_\mathrm{0})}{I_\mathrm{b} + I_\mathrm{inf}\exp\left(-E\left(I_\mathrm{b} + I_\mathrm{inf}\right)t\right)} + \pss + R_\mathrm{n}I_\mathrm{inf}.$$
+%
+Assuming the error obeys a normal with zero mean and standard deviation $\sigma$, we can write
+%
+$$ P(E) \propto \exp \left(-\frac{E}{2\sigma^2}\right) ,$$
+%
+where $\sigma$ is some estimate of the error of the data. Then, we construct a likelihood function, which for a Gaussian may be given by
+%
+$$ L(\theta) \propto P(E) ,$$
+%
+where $\theta$ represents a vector of all the parameters. Hence, the likelihood is maximal when the error is minimal. The method of Maximum Likelihood is finding the set of parameters that maximizes this likelihood function.
+
+The probability of parameters $\theta$ given data points $D$ is given by
+%
+$$ P(\theta|D) = \frac{P(D|\theta)P(\theta)}{P(D)} ,$$
+%
+where $P(D|\theta)$ is the likelihood function $L(\theta)$, $P(\theta|D)$ is the posterior probability, $P(\theta)$ is the prior probability, and $P(D)$ is the evidence. The evidence can be written as
+%
+$$ P(D)=\int P(D|\theta)P(\theta) d\theta ,$$
+which is an integral of the likelihood over the prior distribution of the parameters. Then, we can compute the posterior using Markov chain Monte Carlo. In this work, we have used the Metropolis-Hastings algorithm.
+
+
+
+
+
+
+
+
+
+
+\end{document}
