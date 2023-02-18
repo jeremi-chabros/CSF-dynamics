@@ -7,9 +7,12 @@ function likelihood(params, data, alpha)
   # Calculate the sum of squared errors
   sse = sum((y_pred .- data) .^ 2)
 
+  if alpha < 1.0
   volRes, pressRes, fitted_curve, R2, sse_pv = press_vol_curve(params[1], params[3])
-
   sse_total = alpha * sse + (1 - alpha) * sse_pv
+  else 
+    sse_total = sse
+  end
   # Return the likelihood of the model given the data and the parameters
   return sse_total
 end
