@@ -1,17 +1,15 @@
 # Define the likelihood function
 # This function calculates the likelihood of the model given the data and the parameters
-function likelihood(params, data)
+function likelihood(params, data, alpha)
   # Calculate the predicted values of the model
   y_pred = model(params)
 
-  w1 = 0.5
-  
   # Calculate the sum of squared errors
   sse = sum((y_pred .- data) .^ 2)
 
   volRes, pressRes, fitted_curve, R2, sse_pv = press_vol_curve(params[1], params[3])
 
-  sse_total = w1 * sse + (1 - w1) * sse_pv
+  sse_total = alpha * sse + (1 - alpha) * sse_pv
   # Return the likelihood of the model given the data and the parameters
   return sse_total
 end
@@ -47,7 +45,7 @@ end
 # This function calculates the probability of accepting a proposed new state
 # based on the current state, the proposed new state, and the physiologically
 # defined ranges for the parameters
-function acceptance_probability(current, proposed, ranges, data)
+function acceptance_probability(current, proposed, ranges, data, alpha)
   # Check if any of the proposed parameter values are outside of the defined ranges
 
   Ib = (Data["P_b"] - proposed[3]) / proposed[1]
@@ -58,14 +56,14 @@ function acceptance_probability(current, proposed, ranges, data)
     # If all of the proposed values are within the defined ranges,
     # return the probability of accepting the proposed new state
     # based on the current state and the proposed new state
-    current = likelihood(current, data)
-    proposed = likelihood(proposed, data)
+    current = likelihood(current, data, alpha)
+    proposed = likelihood(proposed, data, alpha)
     return exp((current - proposed) / 2)
   end
 end
 
 # Define the Metropolis-Hastings algorithm
-function metropolis_hastings(data, means, stddevs, ranges, num_samples)
+function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha)
   # Initialize the Markov chain with the starting point
   # The starting point is the mean of the prior distributions
   chain = zeros(num_samples, 3)
@@ -79,7 +77,7 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples)
     current = chain[i-1, :]
     proposed = randn(3) .* stddevs .+ current
     # Calculate the acceptance probability of the proposed new state
-    p = acceptance_probability(current, proposed, ranges, data)
+    p = acceptance_probability(current, proposed, ranges, data, alpha)
     println(p)
 
     chisave[i] = likelihood(current, data) # Undesirable global assignment
@@ -119,7 +117,7 @@ function mean_and_stddev(chain)
 end
 
 # Define the main function
-function main(fileID, num_samples, priors)
+function main(fileID, num_samples, priors, alpha)
   # Load the data
   datapath = "/Users/jjc/CSF/Recordings/"
   path = pwd()
@@ -150,7 +148,7 @@ function main(fileID, num_samples, priors)
 
   # Run the Metropolis-Hastings algorithm for the specified number of samples
   burnin = Int64(round(0.2*num_samples,digits=0))
-  chain, chisave = metropolis_hastings(data, means, stddevs, ranges, num_samples)
+  chain, chisave = metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha)
   chain = chain[burnin:end,:]
   Ib_chain = (Data["P_b"] .- chain[:,3]) ./ chain[:,1]
   return chain, chisave, Ib_chain
