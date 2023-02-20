@@ -360,6 +360,48 @@ function press_vol_curve(Rcsf, P_0, Pm)
     return volRes, pressRes, fitted_curve, R2, MSE
 end
 
+function press_vol_curve(Rcsf, P_0, Pss, Pm)
+    P_b = Data["P_b"]
+    I_inf = Data["I_inf"]
+    I_b = (P_b - Pss) / Rcsf
+
+    dpress = zeros(length(Pm))
+    dvol = zeros(length(Pm))
+
+    for i = 2:length(Pm)
+        dvol[i] = dvol[i-1] + (I_inf + I_b - (Pm[i] - Pss) / Rcsf) * 1 / 6
+        dpress[i] = (Pm[i] - Pss) / (P_b - Pss)
+    end
+
+    volRes = dvol[dpress.>0]
+    pressRes = dpress[dpress.>0]
+
+    # Remove volume infused after reaching plateau or the last x% of infusion
+    volTotal = Data["infusion_end_frame"] - Data["infusion_start_frame"]
+    volLower = Int64(floor(volTotal * 0.1))
+    volUpper = Int64(floor(volTotal * 0.5))
+    idxrm = (Data["infusion_end_frame"] - Data["plateau_start"] + 1) # in frames
+
+    volRes = volRes[volLower:idxrm]
+    pressRes = pressRes[volLower:idxrm]
+
+    # volRes = volRes[volLower:volUpper]
+    # pressRes = pressRes[volLower:volUpper]
+    
+    y = log.(pressRes)
+    coefval = CurveFit.curve_fit(LinearFit, volRes, y)
+    fitted_curve = coefval.(volRes)
+    ydash = mean(y)
+    SSres = sum((y .- fitted_curve) .^ 2)
+    SStot = sum((y .- ydash) .^ 2)
+    R2 = 1 - (SSres / SStot)
+    # MSE = SSres / length(y)
+    MSE = SSres
+    # MSE = SStot
+
+    return volRes, pressRes, fitted_curve, R2, MSE
+end
+
 function errfun(Rcsf::Real, E::Real, P_0::Real)
     errorVal = 0.0
     penalty = 0.0
@@ -1012,7 +1054,7 @@ function calc_model_plot(I_b, E, P_0, Pss)
     infend = Data["infusion_end_frame"]
     I_inf = Data["I_inf"]
     Rn = Data["Rn"]
-    ΔP = Data["P_b"] - Pss
+    ΔP = Data["P_b"] - P_0
     icp = Data["ICP"]
     It = I_b + I_inf
     Pm = zeros(infend) .+ Data["P_b"]
