@@ -1,18 +1,22 @@
 # Define the likelihood function
 # This function calculates the likelihood of the model given the data and the parameters
-function likelihood(params, data, alpha)
+function likelihood(params, icp_inf, alpha)
   # Calculate the predicted values of the model
   y_pred = model(params)
 
   # Calculate the sum of squared errors
-  sse = sum((y_pred .- data) .^ 2)
+  sse = sum((y_pred .- icp_inf) .^ 2)
 
   if alpha < 1.0
-  volRes, pressRes, fitted_curve, R2, sse_pv = press_vol_curve(params[1], params[3])
-  sse_total = alpha * sse + (1 - alpha) * sse_pv
-  else 
+    sse_pv = press_vol_curve(params[1], params[3], icp_inf)[5]
+    sse_pv *= 100 # the are not the same order of magnitude - this is heuristic and needs to be revisited
+    sse_total = alpha * sse + (1.0 - alpha) * sse_pv
+    # println(@sprintf("PV error %0.2f", sse_pv))
+    # println(@sprintf("Fitting error %0.2f", sse))
+  else
     sse_total = sse
   end
+
   # Return the likelihood of the model given the data and the parameters
   return sse_total
 end
@@ -81,10 +85,9 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha)
     proposed = randn(3) .* stddevs .+ current
     # Calculate the acceptance probability of the proposed new state
     p = acceptance_probability(current, proposed, ranges, data, alpha)
-    println(p)
 
-    chisave[i] = likelihood(current, data) # Undesirable global assignment
-    
+    chisave[i] = likelihood(current, data, alpha) # Undesirable global assignment
+
     # Accept the proposed new state with the calculated probability
     if rand() < p
       # If the proposed state is accepted, append it to the Markov chain
@@ -103,13 +106,13 @@ end
 # of the fitted parameters
 function mean_and_stddev(chain)
   params_modes = zeros(3)
-  
+
   for i = 1:3
-  smooth_dist = kde(chain[:,i], bandwidth=0.01) # Mode is unstable if there are very small differences between values - smoothen
-  smooth_dist_vals = collect(smooth_dist.x)
-  params_modes[i] = smooth_dist_vals[findmax(kernd.density)[2]]
-  params_modes[i] = median(chain[:,i])
-  params_modes[i] = StatsBase.mode(chain[:,i])
+    smooth_dist = kde(chain[:, i], bandwidth=0.01) # Mode is unstable if there are very small differences between values - smoothen
+    smooth_dist_vals = collect(smooth_dist.x)
+    params_modes[i] = smooth_dist_vals[findmax(smooth_dist.density)[2]]
+    params_modes[i] = median(chain[:, i])
+    # params_modes[i] = StatsBase.mode(chain[:,i])
   end
 
   # params_modes[i] = median(chain[:,])
@@ -132,7 +135,7 @@ function main(fileID, num_samples, priors, alpha)
   global Data = readCSF(filename)
   infstart = Data["infusion_start_frame"]
   infend = Data["infusion_end_frame"]
-  global data = Data["ICP"][infstart:infend]
+  global icp_inf = Data["ICP"][infstart:infend]
 
   # Specify parameter ranges
   # TODO: add I_b
@@ -145,14 +148,14 @@ function main(fileID, num_samples, priors, alpha)
     means = [15.5, 0.18, 2.8]
     stddevs = [10.36, 0.14, 10.54]
   else
-  means = zeros(3).+0.01
-  stddevs = zeros(3).+0.1
+    means = zeros(3) .+ 0.01
+    stddevs = zeros(3) .+ 0.1
   end
 
   # Run the Metropolis-Hastings algorithm for the specified number of samples
-  burnin = Int64(round(0.2*num_samples,digits=0))
-  chain, chisave = metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha)
-  chain = chain[burnin:end,:]
-  Ib_chain = (Data["P_b"] .- chain[:,3]) ./ chain[:,1]
+  burnin = Int64(round(0.2 * num_samples, digits=0))
+  chain, chisave = metropolis_hastings(icp_inf, means, stddevs, ranges, num_samples, alpha)
+  chain = chain[burnin:end, :]
+  Ib_chain = (Data["P_b"] .- chain[:, 3]) ./ chain[:, 1]
   return chain, chisave, Ib_chain
 end

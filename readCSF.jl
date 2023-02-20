@@ -316,46 +316,36 @@ end
 # end
 
 
-function press_vol_curve(Rcsf, P_0)
+function press_vol_curve(Rcsf, P_0, Pm)
     P_b = Data["P_b"]
     I_inf = Data["I_inf"]
 
     ΔP = P_b - P_0
     I_b = ΔP / Rcsf
 
-    # st = Int64(round(length(Pm) * 0.1, digits=0))
-    # en = Int64(round(length(Pm) * 0.9, digits=0))
-    # npts = abs(en - st)
-    # npts = length(Pm)
-
     dpress = zeros(length(Pm))
     dvol = zeros(length(Pm))
-    # dpress = zeros(npts)
-    # dvol = zeros(npts)
 
     for i = 2:length(Pm)
-        # for i = st:en
         dvol[i] = dvol[i-1] + (I_inf + I_b - (Pm[i] - P_0) / Rcsf) * 1 / 6
         dpress[i] = (Pm[i] - P_0) / (P_b - P_0)
     end
 
-    volTotal = maximum(dvol)
     volRes = dvol[dpress.>0]
     pressRes = dpress[dpress.>0]
 
-    # rmFraction = 0.15
-    # Remove last x % infused volume
-    # rmidx = volRes .> (1-rmFraction)*volTotal
-    # rmidx = rmidx .|| volRes .< 0.05*volTotal
+    # Remove volume infused after reaching plateau or the last x% of infusion
+    volTotal = Data["infusion_end_frame"] - Data["infusion_start_frame"]
+    volLower = Int64(floor(volTotal * 0.1))
+    volUpper = Int64(floor(volTotal * 0.5))
+    idxrm = (Data["infusion_end_frame"] - Data["plateau_start"] + 1) # in frames
 
-    # Remove volume infused after reaching plateau
-    volRemove = (Data["infusion_end_frame"] - Data["plateau_start"]) * Data["I_inf"] / 60
-    rmidx = volRes .> (volTotal - volRemove)
-    rmidx = rmidx .|| volRes .< 0.05*volTotal
-    volRes = volRes[.~rmidx]
-    pressRes = pressRes[.~rmidx]
+    volRes = volRes[volLower:idxrm]
+    pressRes = pressRes[volLower:idxrm]
+
+    # volRes = volRes[volLower:volUpper]
+    # pressRes = pressRes[volLower:volUpper]
     
-
     y = log.(pressRes)
     coefval = CurveFit.curve_fit(LinearFit, volRes, y)
     fitted_curve = coefval.(volRes)
@@ -363,7 +353,9 @@ function press_vol_curve(Rcsf, P_0)
     SSres = sum((y .- fitted_curve) .^ 2)
     SStot = sum((y .- ydash) .^ 2)
     R2 = 1 - (SSres / SStot)
-    MSE = SSres / length(y)
+    # MSE = SSres / length(y)
+    MSE = SSres
+    # MSE = SStot
 
     return volRes, pressRes, fitted_curve, R2, MSE
 end
