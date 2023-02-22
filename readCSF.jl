@@ -233,7 +233,7 @@ function readCSF(filename)
     try
         global E = results["Elasticity"]
     catch
-        global E = 0.11
+        return
     end
 
     Data = Dict{String,Any}()

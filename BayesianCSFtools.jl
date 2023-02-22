@@ -110,15 +110,16 @@ end
 # This function calculates the probability of accepting a proposed new state
 # based on the current state, the proposed new state, and the physiologically
 # defined ranges for the parameters
-function acceptance_probability(current, proposed, ranges, data, alpha, method)
+function acceptance_probability(current, proposed, ranges, data, alpha, method, stddevs)
   # Check if any of the proposed parameter values are outside of the defined ranges
   if method == "4"
     Ib = (Data["P_b"] - proposed[4]) / proposed[1]
   else
     Ib = (Data["P_b"] - proposed[3]) / proposed[1]
   end
+
+  # If any of the proposed values are outside of the defined ranges, return 0
   if any(proposed .< ranges[:, 1]) || any(proposed .> ranges[:, 2]) || Ib >= 1.0 || Ib <= 0.0
-    # If any of the proposed values are outside of the defined ranges, return 0
     return 0
   else
     # If all of the proposed values are within the defined ranges,
@@ -155,7 +156,7 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
     proposed = randn(num_params) .* stddevs .+ current
 
     # Calculate the acceptance probability of the proposed new state
-    p = acceptance_probability(current, proposed, ranges, data, alpha, method)
+    p = acceptance_probability(current, proposed, ranges, data, alpha, method, stddevs)
 
     # Save the likelihood trace/chain
     chisave[i] = likelihood(current, data, alpha, method)
@@ -197,14 +198,7 @@ end
 # ---------------------------------------------------------------------------------------
 
 # Define the main function that loads the data and runs MCMC
-function main(fileID, num_samples, priors, alpha, method)
-  # Load the data
-  datapath = "/Users/jjc/CSF/Recordings/"
-  # path = pwd()
-  # savepath = "/Users/jjc/CSF/"
-  files = glob("*.hdf5", datapath)
-  j = fileID
-  filename = files[j]
+function main(filename, num_samples, priors, alpha, method, means, stddevs)
 
   global Data = readCSF(filename)
   infstart = Data["infusion_start_frame"]
@@ -212,10 +206,7 @@ function main(fileID, num_samples, priors, alpha, method)
   global icp_inf = Data["ICP"][infstart:infend]
 
   # Define the starting point of the Markov chain
-  if priors == "informative"
-    means = [15.5, 0.18, 2.8]
-    stddevs = [10.36, 0.14, 10.54]
-  else
+  if priors != "informative"
     means = zeros(3) .+ 0.01
     stddevs = zeros(3) .+ 0.1
   end
