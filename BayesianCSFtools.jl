@@ -6,6 +6,8 @@ function likelihood(params, icp_inf, alpha, method)
     y_pred = model(params)
   elseif method == "Pss"
     y_pred = model_Pss(params)
+  elseif method == "2"
+    y_pred = model(hcat(params..., Data["P0_static"]))
   else
     y_pred = model_4(params)
   end
@@ -114,6 +116,8 @@ function acceptance_probability(current, proposed, ranges, data, alpha, method, 
   # Check if any of the proposed parameter values are outside of the defined ranges
   if method == "4"
     Ib = (Data["P_b"] - proposed[4]) / proposed[1]
+  elseif method == "2"
+    Ib = (Data["P_b"] - Data["P0_static"]) / proposed[1]
   else
     Ib = (Data["P_b"] - proposed[3]) / proposed[1]
   end
@@ -140,13 +144,23 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
 
   if method == "4"
     num_params = 4
+  elseif method == "2"
+    num_params = 2
   else
     num_params = 3
   end
 
   chain = zeros(num_samples, num_params)
   chisave = zeros(num_samples)
-  chain[1, :] = means
+
+  if num_params == 2
+    chain[1, :] = means[1:2]
+    stddevs = stddevs[1:2]
+    ranges = ranges[1:2,:]
+  else
+    chain[1, :] = means
+  end
+ 
 
   # Run the Markov chain for the specified number of samples
 
@@ -186,13 +200,12 @@ function mean_and_stddev(chain)
     smooth_dist = kde(chain[:, i], bandwidth=0.01) # Mode is unstable if there are very small differences between values - smoothen
     smooth_dist_vals = collect(smooth_dist.x)
     params_modes[i] = smooth_dist_vals[findmax(smooth_dist.density)[2]]
-    params_modes[i] = median(chain[:, i])
     # params_modes[i] = StatsBase.mode(chain[:,i])
   end
-
+  params_medians = median(chain, dims=1)
   params_means = mean(chain, dims=1)
   params_stddevs = std(chain, dims=1)
-  return params_modes, params_means, params_stddevs
+  return params_modes, params_medians, params_means, params_stddevs
 end
 
 # ---------------------------------------------------------------------------------------
@@ -205,6 +218,12 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
   infend = Data["infusion_end_frame"]
   global icp_inf = Data["ICP"][infstart:infend]
 
+  icp = Data["ICP"]
+  amp = Data["AMP"]
+  factor = 1 # std from which residuals will be removed
+  P0_static, R2_P0 = denoising(icp, amp, factor)
+  Data["P0_static"] = P0_static
+
   # Define the starting point of the Markov chain
   if priors != "informative"
     means = zeros(3) .+ 0.01
@@ -215,8 +234,8 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
   if method == "4"
     lowerbound = [0.01, 0.01, -10.0, -10.0]
     upperbound = [50.0, 1.0, Data["P_b"], Data["P_b"]]
-    means = [15.5, 0.18, 2.8, 2.8]
-    stddevs = [10.36, 0.14, 10.54, 10.54]
+    means = [10.0, 0.37, 11.1, 11.1] # Based on literature
+    stddevs = [4.95, 0.13, 2.97, 2.97]
   else
     lowerbound = [0.01, 0.01, -10.0]
     upperbound = [50.0, 1.0, Data["P_b"]]
@@ -230,8 +249,29 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
 
   if method == "4"
     Ib_chain = (Data["P_b"] .- chain[:, 4]) ./ chain[:, 1]
+  elseif method == "2"
+    Ib_chain = (Data["P_b"] .- Data["P0_static"]) ./ chain[:, 1]
   else
     Ib_chain = (Data["P_b"] .- chain[:, 3]) ./ chain[:, 1]
   end
-  return chain, chisave, Ib_chain
+  return chain, chisave, Ib_chain, P0_static, R2_P0
+end
+
+function denoising(icp, amp, factor)
+  rm = .~isnan.(amp)
+  rm = rm .&& amp .> 0.1
+  amp = amp[rm]
+  icp = icp[rm]
+  x = icp
+  y = amp
+  reg = lm(@formula(y ~ x), DataFrame(x=icp, y=amp))
+  R2_old = r2(reg)
+  residuals = y .- GLM.predict(reg, DataFrame(x=icp, y=amp))
+  std_res = residuals ./ std(residuals)
+  keep = abs.(std_res) .<= factor
+  reg_cleaned = lm(@formula(y ~ x), DataFrame(x=icp[keep], y=amp[keep]))
+  c, a = GLM.coeftable(reg_cleaned).cols[1, 1]
+  R2 = r2(reg_cleaned)
+  y_intercept = -c / a
+  return y_intercept, R2
 end

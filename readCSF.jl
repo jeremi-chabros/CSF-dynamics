@@ -266,56 +266,6 @@ function readCSF(filename)
     return Data
 end
 
-# function plot_model(I_b, E, P_0, ICP, dsampf, trend)
-#     infusion_start_frame = Data["infusion_start_frame"]
-#     infusion_end_frame = Data["infusion_end_frame"]
-#     plateau_start = Data["plateau_start"]
-#     plateau_end = Data["plateau_end"]
-#     P_b = Data["P_b"]
-#     P_p = Data["P_p"]
-#     I_inf = Data["I_inf"]
-#     numsamples = length(ICP)
-#     infusion_end_frame > numsamples ? (global infusion_end_frame = numsamples) : 0
-#     # println("Estimated parameters:\nIₐ = $Ibr [mL/min]\n" * "E = $Er [mmHg/mL]\n" * "P₀ = $P0r [mmHg]\n")
-
-#     gg = moving_average(ICP, dsampf)
-#     g0 = zeros(length(ICP))
-#     g0 .+= P_b
-#     g0[Int(dsampf / 2):Int(dsampf / 2)+length(gg)-1] = gg
-#     g0[Int(dsampf / 2)+length(gg):end] .= P_p
-
-#     P_m = zeros(numsamples)
-#     P_m .+= P_b
-#     P_model = zeros(numsamples)
-#     ICPm = zeros(infusion_end_frame - infusion_start_frame)
-
-#     errorVal = 0.0
-#     for i = infusion_start_frame:infusion_end_frame
-#         tᵢ = (i - infusion_start_frame) / 6
-#         It = I_b + I_inf
-#         ΔP = P_b - P_0
-#         y = It * ΔP / (I_b + (I_inf * exp(-E * It * tᵢ))) + P_0 + (Data["I_inf"] * Data["Rn"])
-#         errorVal += (ICP[i] - y)^2
-#         P_model[i] = y
-#     end
-#     global fitErrorVal = 100 * sqrt(errorVal) / length(ICPm) / abs(mean(ICP[infusion_start_frame:infusion_end_frame]))
-
-#     ICPm = P_model[infusion_start_frame:infusion_end_frame]
-#     P_m[infusion_start_frame:infusion_end_frame] = ICPm
-#     P_m[infusion_end_frame+1:end] .= ICPm[end]
-
-#     # plateau_end=numsamples
-#     vspan([infusion_start_frame, infusion_end_frame], color=RGB(0.15, 0.17, 0.17), legend=:outertopright, label="Infusion period", linecolor=:transparent, background=RGB(0.13, 0.15, 0.15))
-#     trend ? plot!(g0, linewidth=2, alpha=0.8, linecolor=:violet, label="Moving average") : 0 # Plot moving average
-
-#     plot!(ICP, linecolor=:cadetblue, linewidth=2, label="Measured", alpha=0.7) # Plot ICP from beginning until end of plateau
-#     # Plot model prediction from beginning until end of plateau
-#     plot!(P_m, linecolor=:orange, linewidth=2, linestyle=:dash, xlims=[1, plateau_end], ylims=[minimum(ICP) * 0.9, maximum(ICP) * 1.1], xlabel="Time [min]", ylabel="ICP [mmHg]", xticks=([0:30:infusion_end_frame;], [0:30:infusion_end_frame;] ./ 6),
-#         label="Model", grid=false, titlefontsize=8, titlealign=:left, background=RGB(0.13, 0.15, 0.15))
-#     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $(round(fitErrorVal,digits=4))")
-# end
-
-
 function press_vol_curve(Rcsf, P_0, Pm)
     P_b = Data["P_b"]
     I_inf = Data["I_inf"]
@@ -342,64 +292,30 @@ function press_vol_curve(Rcsf, P_0, Pm)
 
     volRes = volRes[volLower:idxrm]
     pressRes = pressRes[volLower:idxrm]
-
     # volRes = volRes[volLower:volUpper]
     # pressRes = pressRes[volLower:volUpper]
     
     y = log.(pressRes)
-    coefval = CurveFit.curve_fit(LinearFit, volRes, y)
-    fitted_curve = coefval.(volRes)
-    ydash = mean(y)
-    SSres = sum((y .- fitted_curve) .^ 2)
-    SStot = sum((y .- ydash) .^ 2)
-    R2 = 1 - (SSres / SStot)
-    # MSE = SSres / length(y)
-    MSE = SSres
-    # MSE = SStot
+    x = volRes
 
-    return volRes, pressRes, fitted_curve, R2, MSE
+    coefval = CurveFit.curve_fit(LinearFit, x, y)
+    fitted_curve = coefval.(x)
+
+    dfx = DataFrame(x=x, y=y)
+    pv_model = lm(@formula(y ~ x), dfx)
+    R2 = r2(pv_model)
+    residuals = GLM.residuals(pv_model)
+    SSE = sum(residuals.^2)
+
+    return volRes, pressRes, fitted_curve, R2, SSE
 end
 
-function press_vol_curve(Rcsf, P_0, Pss, Pm)
-    P_b = Data["P_b"]
-    I_inf = Data["I_inf"]
-    I_b = (P_b - Pss) / Rcsf
-
-    dpress = zeros(length(Pm))
-    dvol = zeros(length(Pm))
-
-    for i = 2:length(Pm)
-        dvol[i] = dvol[i-1] + (I_inf + I_b - (Pm[i] - Pss) / Rcsf) * 1 / 6
-        dpress[i] = (Pm[i] - Pss) / (P_b - Pss)
-    end
-
-    volRes = dvol[dpress.>0]
-    pressRes = dpress[dpress.>0]
-
-    # Remove volume infused after reaching plateau or the last x% of infusion
-    volTotal = Data["infusion_end_frame"] - Data["infusion_start_frame"]
-    volLower = Int64(floor(volTotal * 0.1))
-    volUpper = Int64(floor(volTotal * 0.5))
-    idxrm = (Data["infusion_end_frame"] - Data["plateau_start"] + 1) # in frames
-
-    volRes = volRes[volLower:idxrm]
-    pressRes = pressRes[volLower:idxrm]
-
-    # volRes = volRes[volLower:volUpper]
-    # pressRes = pressRes[volLower:volUpper]
-    
-    y = log.(pressRes)
-    coefval = CurveFit.curve_fit(LinearFit, volRes, y)
-    fitted_curve = coefval.(volRes)
+function r_squared(y, fitted_curve)
     ydash = mean(y)
     SSres = sum((y .- fitted_curve) .^ 2)
     SStot = sum((y .- ydash) .^ 2)
     R2 = 1 - (SSres / SStot)
-    # MSE = SSres / length(y)
-    MSE = SSres
-    # MSE = SStot
-
-    return volRes, pressRes, fitted_curve, R2, MSE
+    return R2, SSres
 end
 
 function errfun(Rcsf::Real, E::Real, P_0::Real)
@@ -700,35 +616,6 @@ function getModelBayesStaticP0(lowerbound, upperbound, bkernel, bsctype, bltype)
     return Rcsf, E, Pss
 end
 
-
-# function local_opt(x0, optalg)
-#     result = Optim.optimize(ferror, g!, h!, x0, optalg)
-#     min_val = Optim.minimum(result)
-#     return result, min_val
-# end
-
-# function ferror(X)
-#     errorVal = 0.0
-#     penalty = 0.0
-#     # Rcsf = logit(X[1], lb[1], ub[1])
-#     # E = logit(X[2], lb[2], ub[2])
-#     # P_0 = logit(X[3], lb[3], ub[3])
-
-#     Rcsf = X[1]
-#     E = X[2]
-#     P_0 = X[3]
-#     ΔP = Data["P_b"] - P_0
-#     # I_b = logit(ΔP / Rcsf, Ib_lower, Ib_upper)
-#     I_b = ΔP / Rcsf
-#     It = I_b + Data["I_inf"]
-#     for i = 1:length(Pm)
-#         global tᵢ = (i - 1) / 6
-#         Pᵢ = It * ΔP / (I_b + Data["I_inf"] * exp(-E * It * tᵢ)) + P_0 + (Data["I_inf"] * Data["Rn"])
-#         errorVal += (Pm[i] - Pᵢ)^2
-#     end
-#     return errorVal
-# end
-
 function logit(x, min, max)
     (max - min) * (1 / (1 + exp(-x))) + min
 end
@@ -1000,6 +887,14 @@ function getCI(μ, σ, num_iter)
         for j = 1:num_iter
             θᵢ = θ[:, j]
             Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], θᵢ[3], θᵢ[3])[1]
+            Pmodel = Pmodel[infstart:end]
+            model_err[j] = mean(abs.(Pmodel .- icp))
+        end
+    elseif numvars==2
+        θ[1, :] = (Data["P_b"] .- Data["P0_static"]) ./ θ[1, :]
+        for j = 1:num_iter
+            θᵢ = θ[:, j]
+            Pmodel = calc_model_plot(θᵢ[1], θᵢ[2], Data["P0_static"], Data["P0_static"])[1]
             Pmodel = Pmodel[infstart:end]
             model_err[j] = mean(abs.(Pmodel .- icp))
         end
