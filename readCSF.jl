@@ -253,8 +253,13 @@ function readCSF(filename)
     Data["P_p"] = results["ICP_plateau"]
     Data["P_b"] = results["ICP_baseline"]
     Data["T"] = [0:numsamples-1...] * 1 / 6
+
+    # TODO: transition period 
+
     Data["infusion_start_frame"] = round(Int, (selections["Infusion"][1] - start_time).value / 10000)
     Data["infusion_end_frame"] = round(Int, (selections["Infusion"][2] - start_time).value / 10000)
+    Data["transition_start_frame"] = round(Int, (selections["Transition"][1] - start_time).value / 10000)
+    Data["transition_end_frame"] = round(Int, (selections["Transition"][2] - start_time).value / 10000)
     Data["plateau_start"] = round(Int, (selections["Plateau"][1] - start_time).value / 10000)
     Data["plateau_end"] = round(Int, (selections["Plateau"][2] - start_time).value / 10000)
     Data["rec_dur_s"] = (end_time - start_time).value / 1000
@@ -288,7 +293,7 @@ function press_vol_curve(Rcsf, P_0, Pm)
     volTotal = Data["infusion_end_frame"] - Data["infusion_start_frame"]
     volLower = Int64(floor(volTotal * 0.1))
     volUpper = Int64(floor(volTotal * 0.5))
-    idxrm = (Data["infusion_end_frame"] - Data["plateau_start"] + 1) # in frames
+    idxrm = (Data["infusion_end_frame"] - Data["plateau_start"]) # in frames
 
     volRes = volRes[volLower:idxrm]
     pressRes = pressRes[volLower:idxrm]
@@ -301,11 +306,13 @@ function press_vol_curve(Rcsf, P_0, Pm)
     coefval = CurveFit.curve_fit(LinearFit, x, y)
     fitted_curve = coefval.(x)
 
+    SSE = sum((fitted_curve.-y).^2)
+
     dfx = DataFrame(x=x, y=y)
     pv_model = lm(@formula(y ~ x), dfx)
     R2 = r2(pv_model)
-    residuals = GLM.residuals(pv_model)
-    SSE = sum(residuals.^2)
+    # residuals = GLM.residuals(pv_model)
+    # SSE = sum(residuals.^2)
 
     return volRes, pressRes, fitted_curve, R2, SSE
 end
@@ -864,8 +871,10 @@ function plotmodel(I_b, E, P_0, Pss, μ, σ, cscheme, fmodel)
 
     num_iter = 10000
     w, ci = getCI(μ, σ, num_iter)
-    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Bayes", linestyle=:dash, lw=3)
-    # title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
+    plot!(Pm, ribbon=w, c=model_color, fillalpha=0.1, label="Bayes", lw=3)
+    # plot!(Pm, ribbon=w, c=:purple, fillalpha=0.1, label="Gradient descent", lw=3)
+
+    title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
 
 function getCI(μ, σ, num_iter)
@@ -992,9 +1001,9 @@ end
 function solvemodel(Rcsf, E, P_0)
     # function solvemodel(I_b, E, P_0)
 
-    Rcsf = sigmoid(Rcsf, lb[1], ub[1])
-    E = sigmoid(E, lb[2], ub[2])
-    P_0 = sigmoid(P_0, lb[3], ub[3])
+    # Rcsf = sigmoid(Rcsf, lb[1], ub[1])
+    # E = sigmoid(E, lb[2], ub[2])
+    # P_0 = sigmoid(P_0, lb[3], ub[3])
     # I_b = sigmoid(I_b,lb[4],ub[4])
 
     I_b = (Data["P_b"] - P_0) / Rcsf
@@ -1006,7 +1015,7 @@ function solvemodel(Rcsf, E, P_0)
     ΔP = Data["P_b"] - P_0
     icp = Data["ICP"]
     It = I_b + I_inf
-    Pm = zeros(infend)
+    Pm = zeros(infend) .+ Data["P_b"]
     errorVal = 0.0
 
     for i = infstart:infend
@@ -1016,8 +1025,8 @@ function solvemodel(Rcsf, E, P_0)
         errorVal += (icp[i] - y)^2
     end
 
-    # rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
-    return Pm
+    rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
+    return Pm, rmserr
 end
 
 function solvemodel(Rcsf, E, P_0, Pss)

@@ -4,19 +4,30 @@ function likelihood(params, icp_inf, alpha, method)
   # Calculate the predicted values of the model
   if method == "standard"
     y_pred = model(params)
+    if alpha < 1.0
+      sse_pv = press_vol_curve(params[1], params[3], icp_inf)[5]
+    end
   elseif method == "Pss"
     y_pred = model_Pss(params)
+    if alpha < 1.0
+      sse_pv = press_vol_curve(params[1], params[3], icp_inf)[5]
+    end
   elseif method == "2"
     y_pred = model(hcat(params..., Data["P0_static"]))
+    if alpha < 1.0
+      sse_pv = press_vol_curve(params[1], Data["P0_static"], icp_inf)[5]
+    end
   else
     y_pred = model_4(params)
+    if alpha < 1.0
+      sse_pv = press_vol_curve(params[1], params[4], icp_inf)[5]
+    end
   end
 
   # Calculate the sum of squared errors
   sse = sum((y_pred .- icp_inf) .^ 2)
+
   if alpha < 1.0
-    sse_pv = press_vol_curve(params[1], params[3], icp_inf)[5]
-    sse_pv *= 100 # the are not the same order of magnitude - this is heuristic and needs to be revisited
     sse_total = alpha * sse + (1.0 - alpha) * sse_pv
   else
     sse_total = sse
@@ -59,7 +70,7 @@ function model_Pss(params)
   Rcsf = params[1] # Resistance to csf outflow
   E = params[2] # Brain elastance coefficient
   Pss = params[3] # Pressure in saggital sinus
-  P_0 = Data["P_0"] # Reference ICP
+  P_0 = Data["P0_static"] # Reference ICP
 
   infstart = Data["infusion_start_frame"]
   infend = Data["infusion_end_frame"]
@@ -156,14 +167,14 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
   if num_params == 2
     chain[1, :] = means[1:2]
     stddevs = stddevs[1:2]
-    ranges = ranges[1:2,:]
+    ranges = ranges[1:2, :]
   else
     chain[1, :] = means
   end
- 
+
 
   # Run the Markov chain for the specified number of samples
-
+  accepted_count = 0.0
   for i in 2:num_samples
     # Sample a proposed new state from the normal distributions centered at the current state
     current = chain[i-1, :]
@@ -179,6 +190,7 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
     if rand() < p
       # If the proposed state is accepted, append it to the Markov chain
       chain[i, :] .= proposed
+      accepted_count += 1
     else
       # If the proposed state is not accepted, append the current state again
       chain[i, :] .= current
@@ -186,7 +198,8 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
   end
 
   # Return the Markov chain after running for the specified number of samples
-  return chain, chisave
+  acceptance_rate = accepted_count/num_samples
+  return chain, chisave, acceptance_rate
 end
 
 # ---------------------------------------------------------------------------------------
@@ -220,7 +233,7 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
 
   icp = Data["ICP"]
   amp = Data["AMP"]
-  factor = 1 # std from which residuals will be removed
+  factor = 2 # std from which residuals will be removed
   P0_static, R2_P0 = denoising(icp, amp, factor)
   Data["P0_static"] = P0_static
 
@@ -244,7 +257,7 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
 
   # Run the Metropolis-Hastings algorithm for the specified number of samples
   burnin = Int64(round(0.2 * num_samples, digits=0))
-  chain, chisave = metropolis_hastings(icp_inf, means, stddevs, ranges, num_samples, alpha, method)
+  chain, chisave, acceptance_rate = metropolis_hastings(icp_inf, means, stddevs, ranges, num_samples, alpha, method)
   chain = chain[burnin:end, :]
 
   if method == "4"
@@ -254,10 +267,21 @@ function main(filename, num_samples, priors, alpha, method, means, stddevs)
   else
     Ib_chain = (Data["P_b"] .- chain[:, 3]) ./ chain[:, 1]
   end
-  return chain, chisave, Ib_chain, P0_static, R2_P0
+  return chain, chisave, acceptance_rate, Ib_chain, P0_static, R2_P0
 end
 
 function denoising(icp, amp, factor)
+
+  icp = Data["ICP"]
+  st = Data["infusion_start_frame"]
+  en = Data["infusion_end_frame"]
+
+  Pm = icp[st:en]
+
+  trans_st = Data["transition_start_frame"]
+  trans_en = Data["transition_end_frame"]
+  icp = Data["ICP"][trans_st:trans_en]
+  amp = Data["AMP"][trans_st:trans_en]
   rm = .~isnan.(amp)
   rm = rm .&& amp .> 0.1
   amp = amp[rm]
@@ -268,10 +292,12 @@ function denoising(icp, amp, factor)
   R2_old = r2(reg)
   residuals = y .- GLM.predict(reg, DataFrame(x=icp, y=amp))
   std_res = residuals ./ std(residuals)
-  keep = abs.(std_res) .<= factor
+  keep = abs.(std_res) .<= 1
   reg_cleaned = lm(@formula(y ~ x), DataFrame(x=icp[keep], y=amp[keep]))
   c, a = GLM.coeftable(reg_cleaned).cols[1, 1]
   R2 = r2(reg_cleaned)
   y_intercept = -c / a
+
   return y_intercept, R2
 end
+
