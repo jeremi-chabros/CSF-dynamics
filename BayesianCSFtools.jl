@@ -134,7 +134,7 @@ function acceptance_probability(current, proposed, ranges, data, alpha, method, 
   end
 
   # If any of the proposed values are outside of the defined ranges, return 0
-  if any(proposed .< ranges[:, 1]) || any(proposed .> ranges[:, 2]) || Ib >= 1.0 || Ib <= 0.0
+  if any(proposed .< ranges[:, 1]) || any(proposed .> ranges[:, 2]) || (Ib >= 1.0) || (Ib <= 0.0)
     return 0
   else
     # If all of the proposed values are within the defined ranges,
