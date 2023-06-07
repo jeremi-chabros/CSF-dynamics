@@ -1,7 +1,20 @@
+# Basic I/O handling and plotting, miscellaneous support functions for analysis of CSF infusion studies
+#
+# Author:
+#   Jeremi Chabros, University of Cambridge, 2023
+#   email: jjc80@cam.ac.uk
+#   github.com/jeremi-chabros
+
+# ---------------------------------------------------------------------------------------
+# Calculate moving average
 moving_average(vs, n) = [sum(@view vs[i:(i+n-1)]) / n for i in 1:(length(vs)-(n-1))]
 
+# ---------------------------------------------------------------------------------------
+# Rectifier function
 delta(xnum) = maximum([0, xnum]) > 0 ? 1 : 0
 
+# ---------------------------------------------------------------------------------------
+# Initialise local optimiser
 function local_opt(x0, optalg)
     # result = Optim.optimize(ferror, g!, x0, optalg)
     result = Optim.optimize(ferror, x0, optalg)
@@ -9,6 +22,8 @@ function local_opt(x0, optalg)
     return result, min_val
 end
 
+# ---------------------------------------------------------------------------------------
+# Standard Marmarou model for nonlinear optim
 function ferror(X)
     errorVal = 0.0
     Rcsf = X[1]
@@ -30,6 +45,8 @@ function ferror(X)
     return sqrt(errorVal / length(Pm))
 end
 
+# ---------------------------------------------------------------------------------------
+# Marmarou model with 4 parameters (Rcsf, E, P0, Pss) for nonlinear optim
 function ferrorPss(X)
     errorVal = 0.0
     Rcsf = X[1]
@@ -47,6 +64,8 @@ function ferrorPss(X)
     return sqrt(errorVal / length(Pm))
 end
 
+# ---------------------------------------------------------------------------------------
+# Marmarou model with static P0 for nonlinear optim
 function ferrorStaticP0(X)
     errorVal = 0.0
     Rcsf = X[1]
@@ -64,6 +83,8 @@ function ferrorStaticP0(X)
     return sqrt(errorVal / length(Pm))
 end
 
+# ---------------------------------------------------------------------------------------
+# Gradient function for gradient-descent based nonlinear optim methods
 function ∇f(G::AbstractVector{T}, X::T...) where {T}
 
     P_b = Data["P_b"]
@@ -108,11 +129,15 @@ function ∇f(G::AbstractVector{T}, X::T...) where {T}
     return
 end
 
+# ---------------------------------------------------------------------------------------
+# Parsing dates
 function exceldatetodate(exceldate::Real)
     t, d = modf(exceldate)
     return Dates.DateTime(1899, 12, 30) + Dates.Day(d) + Dates.Millisecond((floor(t * 86400000)))
 end
 
+# ---------------------------------------------------------------------------------------
+# Parsing XML summary from ICM+
 function parseXML(Parameters, Selections, Results)
 
     selections = Dict()
@@ -130,7 +155,7 @@ function parseXML(Parameters, Selections, Results)
         selections = merge!(selections, Dict(sel_name => [sel_st, sel_en]))
     end
 
-    for i in 1:length(Results)
+    for i = eachindex(Results)
         res = elements(Results[i])
         res_name = Results[i]["Name"]
         name_surrogate = split(res_name, " ")
@@ -148,6 +173,8 @@ function parseXML(Parameters, Selections, Results)
     return results, selections
 end
 
+# ---------------------------------------------------------------------------------------
+# Core function for obtaining data from ICM+ hdf5 files
 function readCSF(filename)
 
     recording_start_time = 0.0
@@ -165,7 +192,7 @@ function readCSF(filename)
         completeAttrFlg = true
     catch # Obtain these from ICP datetime & parse later on when it is loaded
         recording_start_time = [DateTime(2013)]
-        recording_end_time = [DateTime(2013)]   # Pre-allocate so the type works
+        recording_end_time = [DateTime(2013)]   # Pre-allocate so the type matches
     end
 
     # Begin handling data in XML string - some files do not have infusion test output
@@ -194,7 +221,7 @@ function readCSF(filename)
 
     results, selections = parseXML(Parameters, Selections, Results)
 
-    # This dereferencing is pain, there has to be a more elegant solution
+    # This way of dereferencing is pain, there has to be a more elegant solution
     t_series_ds = fid["summaries/minutes/"]
     t_series = t_series_ds[:]
     numsamples = length(t_series)
@@ -237,10 +264,10 @@ function readCSF(filename)
     end
 
     Data = Dict{String,Any}()
-    # Data["P_0"] = results["Pss"]
     Data["I_b"] = results["CSF_production"]
     Data["Rcsf"] = results["Rcsf"]
 
+    # Inconsistent naming
     try
         Data["P_0"] = results["Pss"]
     catch
@@ -253,8 +280,6 @@ function readCSF(filename)
     Data["P_p"] = results["ICP_plateau"]
     Data["P_b"] = results["ICP_baseline"]
     Data["T"] = [0:numsamples-1...] * 1 / 6
-
-    # TODO: transition period 
 
     Data["infusion_start_frame"] = round(Int, (selections["Infusion"][1] - start_time).value / 10000)
     Data["infusion_end_frame"] = round(Int, (selections["Infusion"][2] - start_time).value / 10000)
@@ -271,6 +296,8 @@ function readCSF(filename)
     return Data
 end
 
+# ---------------------------------------------------------------------------------------
+# Calculate PV curve
 function press_vol_curve(Rcsf, P_0, Pm)
     P_b = Data["P_b"]
     I_inf = Data["I_inf"]
@@ -299,14 +326,14 @@ function press_vol_curve(Rcsf, P_0, Pm)
     pressRes = pressRes[volLower:idxrm]
     # volRes = volRes[volLower:volUpper]
     # pressRes = pressRes[volLower:volUpper]
-    
+
     y = log.(pressRes)
     x = volRes
 
     coefval = CurveFit.curve_fit(LinearFit, x, y)
     fitted_curve = coefval.(x)
 
-    SSE = sum((fitted_curve.-y).^2)
+    SSE = sum((fitted_curve .- y) .^ 2)
 
     dfx = DataFrame(x=x, y=y)
     pv_model = lm(@formula(y ~ x), dfx)
@@ -317,6 +344,8 @@ function press_vol_curve(Rcsf, P_0, Pm)
     return volRes, pressRes, fitted_curve, R2, SSE
 end
 
+# ---------------------------------------------------------------------------------------
+# Calculate R^2 of the PV curve
 function r_squared(y, fitted_curve)
     ydash = mean(y)
     SSres = sum((y .- fitted_curve) .^ 2)
@@ -325,6 +354,8 @@ function r_squared(y, fitted_curve)
     return R2, SSres
 end
 
+# ---------------------------------------------------------------------------------------
+# Marmarou model for other nonlinear optim library
 function errfun(Rcsf::Real, E::Real, P_0::Real)
     errorVal = 0.0
     penalty = 0.0
@@ -351,6 +382,8 @@ function errfun(Rcsf::Real, E::Real, P_0::Real)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Marmarou model with 4 params for other nonlinear optim library
 function errfunPss(Rcsf::Real, E::Real, P_0::Real, Pss::Real)
     errorVal = 0.0
     penalty = 0.0
@@ -374,6 +407,8 @@ function errfunPss(Rcsf::Real, E::Real, P_0::Real, Pss::Real)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Marmarou model with static P0 for other nonlinear optim library
 function errfunStaticP0(Rcsf::Real, E::Real, Pss::Real)
     errorVal = 0.0
     penalty = 0.0
@@ -396,6 +431,8 @@ function errfunStaticP0(Rcsf::Real, E::Real, Pss::Real)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Error function for the Bayesian optimisation library (NOT MCMC, currently deprecated)
 function errfunBayesPss(x)
     Rcsf = x[1]
     E = x[2]
@@ -430,6 +467,8 @@ function errfunBayesPss(x)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Error function for the Bayesian optimisation library (NOT MCMC, currently deprecated)
 function errfunBayesStaticP0(x)
     Rcsf = x[1]
     E = x[2]
@@ -464,6 +503,8 @@ function errfunBayesStaticP0(x)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Error function for the Bayesian optimisation library (NOT MCMC, currently deprecated)
 function errfunBayes(x)
     Rcsf = x[1]
     E = x[2]
@@ -493,6 +534,8 @@ function errfunBayes(x)
     return errorVal + penalty
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise
 function getModelNL(lowerbound, upperbound, optalg, x0)
     model = Model(NLopt.Optimizer)
     set_optimizer_attribute(model, "algorithm", optalg)
@@ -514,6 +557,8 @@ function getModelNL(lowerbound, upperbound, optalg, x0)
     return value(Rcsf), value(E), value(P_0)
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise #2
 function getModelNLPss(lowerbound, upperbound, optalg, x0)
     model = Model(NLopt.Optimizer)
     set_optimizer_attribute(model, "algorithm", optalg)
@@ -536,6 +581,8 @@ function getModelNLPss(lowerbound, upperbound, optalg, x0)
     return value(Rcsf), value(E), value(P_0), value(Pss)
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise #3
 function getModelStaticP0(lowerbound, upperbound, optalg, x0)
     model = Model(NLopt.Optimizer)
     set_optimizer_attribute(model, "algorithm", optalg)
@@ -556,6 +603,8 @@ function getModelStaticP0(lowerbound, upperbound, optalg, x0)
     return value(Rcsf), value(E), value(Pss)
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise using Bayesian optimiser #1 (deprecated)
 function getModelBayes(lowerbound, upperbound, bkernel, bsctype, bltype)
 
     config = ConfigParameters()         # calls initialize_parameters_to_default of the C API
@@ -578,6 +627,8 @@ function getModelBayes(lowerbound, upperbound, bkernel, bsctype, bltype)
     return Rcsf, E, P_0
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise using Bayesian optimiser #2 (deprecated)
 function getModelBayesPss(lowerbound, upperbound, bkernel, bsctype, bltype)
 
     config = ConfigParameters()         # calls initialize_parameters_to_default of the C API
@@ -601,6 +652,8 @@ function getModelBayesPss(lowerbound, upperbound, bkernel, bsctype, bltype)
     return Rcsf, E, P_0, Pss
 end
 
+# ---------------------------------------------------------------------------------------
+# Initialise model and optimise using Bayesian optimiser #3 (deprecated)
 function getModelBayesStaticP0(lowerbound, upperbound, bkernel, bsctype, bltype)
 
     config = ConfigParameters()         # calls initialize_parameters_to_default of the C API
@@ -623,14 +676,20 @@ function getModelBayesStaticP0(lowerbound, upperbound, bkernel, bsctype, bltype)
     return Rcsf, E, Pss
 end
 
+# ---------------------------------------------------------------------------------------
+# Sigmoid transform function with minmax
 function logit(x, min, max)
     (max - min) * (1 / (1 + exp(-x))) + min
 end
 
+# ---------------------------------------------------------------------------------------
+# Sigmoid transform function (general)
 function logitt(x)
     (1 / (1 + exp(-x)))
 end
 
+# ---------------------------------------------------------------------------------------
+# Calculate gradient (other nonlinear optim library)
 function g!(G, X)
     # G[1] = Symbolics.value(substitute(diffRcsf, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2])))
     # G[2] = Symbolics.value(substitute(diffE, Dict(I_inf=>Data["I_inf"], P_b=>Data["P_b"], Rcsf=>X[1], P_0=>X[3], E=>X[2])))
@@ -650,6 +709,8 @@ function g!(G, X)
     G[3] = 1 + ((P_0 - P_b) / Rcsf + (P_0 - P_b) / Rcsf - I_inf) / (I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf) - (-1 / Rcsf + (E * I_inf * t * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf))) / Rcsf) * (((P_b - P_0) * (I_inf + (P_b - P_0) / Rcsf)) / ((I_inf * exp(-E * t * (I_inf + (P_b - P_0) / Rcsf)) + (P_b - P_0) / Rcsf)^2))
 end
 
+# ---------------------------------------------------------------------------------------
+# Calculate Hessian (other nonlinear optim library)
 function h!(H, X)
     P_b = Data["P_b"]
     I_inf = Data["I_inf"]
@@ -669,6 +730,8 @@ function h!(H, X)
 
 end
 
+# ---------------------------------------------------------------------------------------
+# Analytical solutions to gradient and Hessian (this is symbolic and NOT numerical forward diff)
 function solveDerivatives()
     Symbolics.@variables E P_0 I_inf P_b Rcsf t I_b
 
@@ -697,8 +760,9 @@ function solveDerivatives()
     return diffRcsf, diffE, diffP0
 end
 
+# ---------------------------------------------------------------------------------------
+# Plot infusion study trace
 function plotmodel(I_b, E, P_0, cscheme, fmodel)
-
     if cscheme == "dark"
         # FOR WEBSITE
         # bgcolor=:transparent
@@ -758,6 +822,8 @@ function plotmodel(I_b, E, P_0, cscheme, fmodel)
     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
 
+# ---------------------------------------------------------------------------------------
+# Plot infusion study trace
 function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
 
     if cscheme == "dark"
@@ -819,6 +885,8 @@ function plotmodel(I_b, E, P_0, μ, σ, cscheme, fmodel)
     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
 
+# ---------------------------------------------------------------------------------------
+# Plot infusion study trace
 function plotmodel(I_b, E, P_0, Pss, μ, σ, cscheme, fmodel)
 
     if cscheme == "dark"
@@ -877,6 +945,8 @@ function plotmodel(I_b, E, P_0, Pss, μ, σ, cscheme, fmodel)
     title!("I_b = $(round(I_b,digits=2))\n" * "Rcsf = $(round(value(Rcsf),digits=2))\n" * "E = $(round(value(E),digits=2))\n" * "P_0 = $(round(value(P_0),digits=2))\n" * "error = $rmserr", titlealign=:left, titlefontsize=8, xlabel="Time [min]", ylabel="ICP [mmHg]")
 end
 
+# ---------------------------------------------------------------------------------------
+# Obtain confidence intervals for ribbon plot of uncertainty using boostrapping
 function getCI(μ, σ, num_iter)
     infstart = Data["infusion_start_frame"]
     infend = Data["infusion_end_frame"]
@@ -899,7 +969,7 @@ function getCI(μ, σ, num_iter)
             Pmodel = Pmodel[infstart:end]
             model_err[j] = mean(abs.(Pmodel .- icp))
         end
-    elseif numvars==2
+    elseif numvars == 2
         θ[1, :] = (Data["P_b"] .- Data["P0_static"]) ./ θ[1, :]
         for j = 1:num_iter
             θᵢ = θ[:, j]
@@ -931,6 +1001,8 @@ function getCI(μ, σ, num_iter)
     return w, ci_low
 end
 
+# ---------------------------------------------------------------------------------------
+# Ad hoc calc of the model curve
 function calc_model_plot(I_b, E, P_0)
     infstart = Data["infusion_start_frame"]
     infend = Data["infusion_end_frame"]
@@ -953,6 +1025,8 @@ function calc_model_plot(I_b, E, P_0)
     return Pm, round(rmserr, digits=4)
 end
 
+# ---------------------------------------------------------------------------------------
+# Ad hoc calc of the model curve
 function calc_model_plot(I_b, E, P_0, Pss)
     infstart = Data["infusion_start_frame"]
     infend = Data["infusion_end_frame"]
@@ -975,6 +1049,8 @@ function calc_model_plot(I_b, E, P_0, Pss)
     return Pm, round(rmserr, digits=4)
 end
 
+# ---------------------------------------------------------------------------------------
+# Ad hoc calc of the model curve
 function calc_model_plot_Pss(I_b, E)
     infstart = Data["infusion_start_frame"]
     infend = Data["infusion_end_frame"]
@@ -998,6 +1074,8 @@ function calc_model_plot_Pss(I_b, E)
     return Pm, round(rmserr, digits=5)
 end
 
+# ---------------------------------------------------------------------------------------
+# Old function to obtain the model trace and fitting error
 function solvemodel(Rcsf, E, P_0)
     # function solvemodel(I_b, E, P_0)
 
@@ -1028,6 +1106,9 @@ function solvemodel(Rcsf, E, P_0)
     rmserr = 100 * sqrt(errorVal) / length(Pm) / abs(mean(icp[infstart:infend]))
     return Pm, rmserr
 end
+
+# ---------------------------------------------------------------------------------------
+# Old function to obtain the model trace and fitting error (4 params)
 
 function solvemodel(Rcsf, E, P_0, Pss)
     # function solvemodel(I_b, E, P_0)
@@ -1061,6 +1142,8 @@ function solvemodel(Rcsf, E, P_0, Pss)
     return Pm
 end
 
+# ---------------------------------------------------------------------------------------
+# Old function to obtain the model trace and fitting error (Pss)
 function solvemodelPss(Rcsf, E, Pss)
     # function solvemodel(I_b, E, P_0)
 

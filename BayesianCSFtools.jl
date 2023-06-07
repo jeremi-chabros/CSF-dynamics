@@ -1,3 +1,11 @@
+# Support functions for Bayesian analysis of CSF infusion studies
+#
+# Author:
+#   Jeremi Chabros, University of Cambridge, 2023
+#   email: jjc80@cam.ac.uk
+#   github.com/jeremi-chabros
+#
+# ---------------------------------------------------------------------------------------
 # Define the likelihood function
 # This function calculates the likelihood of the model given the data and the parameters
 function likelihood(params, icp_inf, alpha, method)
@@ -37,8 +45,8 @@ function likelihood(params, icp_inf, alpha, method)
 end
 
 # ---------------------------------------------------------------------------------------
+# Define Marmarou model (standard)
 
-# Define Marmarou model
 function model(params)
   Rcsf = params[1] # Resistance to csf outflow
   E = params[2] # Brain elastance coefficient
@@ -64,8 +72,8 @@ function model(params)
 end
 
 # ---------------------------------------------------------------------------------------
-
 # Define Marmarou model with static P_0 (optimising over Pss)
+
 function model_Pss(params)
   Rcsf = params[1] # Resistance to csf outflow
   E = params[2] # Brain elastance coefficient
@@ -91,8 +99,8 @@ function model_Pss(params)
 end
 
 # ---------------------------------------------------------------------------------------
-
 # Define Marmarou model with 4 free parameters (both P_0 and Pss optimised)
+
 function model_4(params)
   Rcsf = params[1] # Resistance to csf outflow
   E = params[2] # Brain elastance coefficient
@@ -118,11 +126,11 @@ function model_4(params)
 end
 
 # ---------------------------------------------------------------------------------------
-
 # Define the acceptance probability function
 # This function calculates the probability of accepting a proposed new state
 # based on the current state, the proposed new state, and the physiologically
 # defined ranges for the parameters
+
 function acceptance_probability(current, proposed, ranges, data, alpha, method, stddevs)
   # Check if any of the proposed parameter values are outside of the defined ranges
   if method == "4"
@@ -147,8 +155,8 @@ function acceptance_probability(current, proposed, ranges, data, alpha, method, 
 end
 
 # ---------------------------------------------------------------------------------------
-
 # Define the Metropolis-Hastings algorithm
+
 function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, method)
   # Initialize the Markov chain with the starting point
   # The starting point is the mean of the prior distributions
@@ -171,7 +179,6 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
   else
     chain[1, :] = means
   end
-
 
   # Run the Markov chain for the specified number of samples
   accepted_count = 0.0
@@ -198,14 +205,13 @@ function metropolis_hastings(data, means, stddevs, ranges, num_samples, alpha, m
   end
 
   # Return the Markov chain after running for the specified number of samples
-  acceptance_rate = accepted_count/num_samples
+  acceptance_rate = accepted_count / num_samples
   return chain, chisave, acceptance_rate
 end
 
 # ---------------------------------------------------------------------------------------
+# Calculate the means and standard deviations of the posterior distributions of the fitted parameters
 
-# Calculate the means and standard deviations of the posterior distributions
-# of the fitted parameters
 function mean_and_stddev(chain)
   num_params = size(chain)[2]
   params_modes = zeros(num_params)
@@ -222,8 +228,8 @@ function mean_and_stddev(chain)
 end
 
 # ---------------------------------------------------------------------------------------
-
 # Define the main function that loads the data and runs MCMC
+
 function main(filename, num_samples, priors, alpha, method, means, stddevs)
 
   global Data = readCSF(filename)
@@ -301,3 +307,54 @@ function denoising(icp, amp, factor)
   return y_intercept, R2
 end
 
+# ---------------------------------------------------------------------------------------
+# Calculate the error (for saving)
+
+function get_rmse(Rcsf, E, P_0, Pss, method)
+  if method == "standard"
+    I_b = (Data["P_b"] - P_0) / Rcsf
+    rmse = calc_model_plot(I_b, E, P_0)[2]
+  elseif method == "Pss"
+    I_b = (Data["P_b"] - Pss) / Rcsf
+    rmse = calc_model_plot(I_b, E, P_0, Pss)[2]
+  elseif method == "2"
+    I_b = (Data["P_b"] - Data["P0_static"]) / Rcsf
+    rmse = calc_model_plot(I_b, E, Data["P0_static"])[2]
+  else
+    I_b = (Data["P_b"] - Pss) / Rcsf
+    rmse = calc_model_plot(I_b, E, P_0, Pss)[2]
+  end
+  return rmse
+end
+
+# ---------------------------------------------------------------------------------------
+# Calculate the Gelman-Rubin convergence statistic
+
+function convergence_stat(chisave, chain1, chain2, chain3)
+  niter = length(chisave)
+  burnin = Int64(0.2 * niter) # Define burn-in time as 20% initial samples
+
+  # plot(chain1[burnin:end], color=:black, grid=false, linewidth=2)
+  # plot!(chain2[burnin:end], color=:black, grid=false, linewidth=2)
+  # plot!(chain3[burnin:end], color=:black, grid=false, linewidth=2)
+
+  x_hat1 = mean(chain1[burnin:end])
+  x_hat2 = mean(chain2[burnin:end])
+  x_hat3 = mean(chain3[burnin:end])
+
+  J = 3
+  L = niter - burnin
+  x_grand = (x_hat1 + x_hat2 + x_hat3) / J
+  B1 = (x_hat1 - x_grand)^2
+  B2 = (x_hat2 - x_grand)^2
+  B3 = (x_hat3 - x_grand)^2
+  B = L / (J - 1) * (B1 + B2 + B3)
+  sj1 = 1 / (L - 1) * sum((chain1[burnin:end] .- x_hat1) .^ 2)
+  sj2 = 1 / (L - 1) * sum((chain2[burnin:end] .- x_hat2) .^ 2)
+  sj3 = 1 / (L - 1) * sum((chain3[burnin:end] .- x_hat3) .^ 2)
+  W = (sj1 + sj2 + sj3) / J
+  V = ((L - 1) / L) * W + ((J + 1) / (J * L)) * B
+  R = sqrt(V / W)
+
+  return R
+end
